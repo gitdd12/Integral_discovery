@@ -392,6 +392,9 @@ def test_min_submits_blocks_eos_in_sampler():
     lg = torch.zeros(1, V.VOCAB_SIZE)
     out = _mask_logits(lg, [nb], allowed_mask("cpu"))
     assert out[0, V.EOS_ID] == float("-inf")
-    nb.feed_text("제출[ 1 ]\n제출[ 2 ]\n")
-    assert nb.eos_ok
-    assert _mask_logits(lg, [nb], allowed_mask("cpu"))[0, V.EOS_ID] == 0
+    nb.feed_text("제출[ 1 ]")
+    assert "→ 오차" in nb.render()
+    assert nb.render().rstrip().endswith("제출[›") or nb.render().rstrip().endswith("제출[")  # 코드가 다음 `제출[` 를 써 줌
+    assert nb.sub == []                                   # 제출 본문을 기다리는 상태
+    nb.feed_text(" 2 ]")
+    assert nb.eos_ok and len(nb.submissions) == 2 and nb.sub is None

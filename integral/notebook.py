@@ -201,6 +201,10 @@ class Notebook:
         forced = self._force(out)
         if len(self.submissions) >= self.max_submits or len(self.ids) >= self.max_len:
             self.done = True
+        elif len(self.submissions) < self.min_submits:
+            # 최소 제출 횟수를 못 채웠으면 코드가 `제출[` 를 대신 써 준다 (본문은 모델이 쓴다).
+            forced += self._force(["제출["])
+            self.sub, self.sub_bad, self.buf = [], False, []
         return forced
 
     @staticmethod
