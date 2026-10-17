@@ -1,10 +1,11 @@
 {
- "train_like": 0.9966666666666667,
- "new_shapes": 0.9966666666666667,
+ "train_like": 1.0,
+ "new_shapes": 1.0,
  "big_numbers": 1.0,
- "nested": 0.9866666666666667,
- "new_formulas": 0.9533333333333334,
- "more_pieces": 0.17,
- "longer_loop": 0.0033333333333333335,
- "long_calc": 0.4666666666666667
+ "nested": 1.0,
+ "new_formulas": 1.0,
+ "format_real": 1.0,
+ "more_pieces": 0.26666666666666666,
+ "longer_loop": 0.013333333333333334,
+ "long_calc": 0.4066666666666667
 }

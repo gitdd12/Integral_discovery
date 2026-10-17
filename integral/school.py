@@ -336,14 +336,61 @@ def t_submit(rng, cat="submit") -> Example:
     raise RuntimeError
 
 
+def t_format(rng, cat="format") -> Example:
+    """진짜 문제와 같은 모양(곡선 + 구간)에서 넓이가 아닌 걸 묻는 형식 연습.
+
+    묻는 것: 한 점의 높이(x=a, x=b, x=임의의 정수 — 구간 안팎 무관, 위치가 특별하지 않게) 또는 a, b 로 하는 간단한 계산.
+    반복·직사각형 쌓기·넓이 풀이는 없다. 답은 계산기로 읽거나(제출 없음) `제출[ ... ]` 로 낸다.
+    """
+    from .curves import random_curve
+
+    for _ in range(100):
+        c = random_curve(rng)
+        sub = rng.random() < 0.55
+        kind = str(rng.choice(["a", "b", "int", "calc"], p=[.2, .2, .3, .3]))
+        base = ["<bos>", "문제:", "곡선:", "f(", "x", ")", "="] + tokenize(c.text) \
+            + ["구간:", "a", "="] + tokenize(fmt_num(c.a)) + ["b", "="] + tokenize(fmt_num(c.b))
+        if kind == "calc":
+            expr = str(rng.choice(["a+b", "b-a", "a-b", "a×b", "(a+b)÷2", "b÷a", "a+a", "b×b", "b-a+b"]))
+            try:
+                y = compile_ast(parse_expr(tokenize(expr)))({"a": c.a, "b": c.b}, {})
+            except Exception:
+                continue
+            q = tokenize(expr) + ["계산?"]
+            call, x = expr, None
+        else:
+            v = {"a": c.a, "b": c.b}.get(kind)
+            sym = kind
+            if kind == "int":
+                v = float(rng.integers(-9, 21))
+                sym = ntext(v)
+            try:
+                y = c.f(v)
+            except Exception:
+                continue
+            q = ["\n", "x", "="] + tokenize(sym) + ["높이?"]
+            call, x = f"f({sym})", v
+        if not (math.isfinite(y) and 1e-6 < abs(y) < 1e6):
+            continue
+        # 줄바꿈 하나로 문제 끝
+        p = base + (["\n"] if kind == "calc" else []) + q + (["제출?"] if sub else []) + ["\n"]
+        if kind == "calc":     # 식은 구간 뒤에 오면 숫자와 붙으니 구간 앞으로
+            p = ["<bos>", "문제:"] + tokenize(expr) + ["계산?"] + (["제출?"] if sub else []) \
+                + base[2:] + ["\n"]
+        resp = f"제출[ {call} ]\n" if sub else f"{call}=\n"
+        return Example(cat, p, resp, "submit" if sub else "calc", float(y), x=x, f=c.f,
+                       interval=(c.a, c.b))
+    raise RuntimeError
+
+
 def _is_int_expr(expr):
     return "." not in expr
 
 
 # ------------------------------------------------------------------ 섞기
 TRAIN_MIX = [
-    ("rect", 0.08), ("plug", 0.10), ("shape", 0.25), ("loop", 0.14),
-    ("calc", 0.08), ("calc_ab", 0.07), ("submit", 0.28),
+    ("rect", 0.07), ("plug", 0.08), ("shape", 0.20), ("loop", 0.12),
+    ("calc", 0.07), ("calc_ab", 0.06), ("submit", 0.22), ("format", 0.18),
 ]
 
 
@@ -362,6 +409,8 @@ def sample_train(rng) -> Example:
         return t_calc(rng)
     if k == "calc_ab":
         return t_calc(rng, with_ab=True, cat="calc_ab")
+    if k == "format":
+        return t_format(rng)
     return t_submit(rng)
 
 
@@ -371,9 +420,10 @@ TEST_SETS: dict[str, Callable] = {
     "big_numbers": lambda rng: t_rect(rng, maxd=4, mind=4, cat="big_numbers"),   # 가로·세로 모두 4자리 = 학습 중 가장 큰 값 (5자리 이상은 실험에 안 쓰므로 시험 안 함)
     "nested": lambda rng: t_nested(rng),
     "new_formulas": lambda rng: t_plug(rng, TEST_X_FAMILIES, "new_formulas"),
+    "format_real": lambda rng: t_format(rng, "format_real"),   # 진짜 문제 모양, 처음 보는 곡선
     # ---- 참고용: 학습 범위를 한 칸 넘는 것
     "more_pieces": lambda rng: t_shape(rng, k=int(rng.choice([6, 7])), maxd=3, cat="more_pieces"),
     "longer_loop": lambda rng: t_loop(rng, max_nd=4, min_nd=4, cat="longer_loop"),
     "long_calc": lambda rng: t_calc(rng, depth=5, cat="long_calc"),
 }
-PASS_SETS = ["train_like", "new_shapes", "big_numbers", "nested", "new_formulas"]
+PASS_SETS = ["train_like", "new_shapes", "big_numbers", "nested", "new_formulas", "format_real"]
