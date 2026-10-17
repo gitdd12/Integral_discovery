@@ -96,9 +96,12 @@ def decode(ids: list[int], mask: list[int] | None = None) -> str:
             parts.append("›")
             in_forced = False
         if prev is not None and t != "\n" and prev != "\n":
-            need = _is_word(t) or _is_word(prev) or prev in (":", ";") or (
-                prev[-1].isdigit() and prev[0] == "p" and t.isdigit()
-            ) or (prev[-1].isalnum() and t[0].isalpha() and prev not in ("(",))
+            func_call = prev in ("sin", "cos", "exp") and t == "("
+            need = not func_call and (
+                _is_word(t) or _is_word(prev) or prev in (":", ";")
+                or (prev[0] == "p" and prev[-1].isdigit() and t.isdigit())
+                or (prev[-1].isalnum() and t[0].isalpha() and prev != "(")
+            )
             if need and not (parts and parts[-1] in ("‹", "›")):
                 parts.append(" ")
         parts.append(t)

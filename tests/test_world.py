@@ -349,3 +349,35 @@ def test_performance_big_loop():
     nb.feed_text("제출[ 정의 p0=0; 반복 N=10000: 정의 p0=p0+rect((b-a)÷N,f(a+i×(b-a)÷N)); p0 ]\n")
     s = nb.final_score()
     assert time.time() - t < 8 and s > 3
+
+
+# ------------------------------------------------------------ 모델·생성기
+def test_cached_step_matches_full_forward_and_generation():
+    import torch
+    from integral.generate import run_notebooks, run_notebooks_cached
+    from integral.model import GPT, Config
+
+    torch.manual_seed(0)
+    m = GPT(Config(layers=2, dim=32, heads=2, ff=64))
+    ids = torch.randint(3, V.VOCAB_SIZE, (3, 17))
+    full = m(ids)
+    cache = m.init_cache(3, 20)
+    for t in range(17):
+        step = m.step(ids[:, t], torch.full((3,), t), cache)
+        assert torch.allclose(step, full[:, t], atol=1e-4)
+    # 줄마다 위치가 달라도 같은 결과
+    cache = m.init_cache(2, 20)
+    a = torch.randint(3, V.VOCAB_SIZE, (2, 6))
+    for t in range(6):
+        m.step(a[:, t], torch.full((2,), t), cache)
+    out = m.step(a[:, 0], torch.tensor([6, 6]), cache)       # 임의 토큰을 7번째 칸에
+    ref = m(torch.cat([a, a[:, :1]], 1))[:, 6]
+    assert torch.allclose(out, ref, atol=1e-4)
+
+    # 두 생성기가 같은 글을 쓴다 (greedy, 계산기 끼워넣기 포함)
+    def fresh():
+        return [Notebook([V.BOS] + tiny_curve().prompt_tokens(), curve=tiny_curve(), max_len=60) for _ in range(3)]
+    n1, n2 = fresh(), fresh()
+    run_notebooks(m, n1, max_new=60)
+    run_notebooks_cached(m, n2)
+    assert [n.ids for n in n1] == [n.ids for n in n2]

@@ -45,6 +45,8 @@ class Notebook:
         hidden: list | Callable[[], list] | None = None,
         store: dict | None = None,
         x: float | None = None,
+        f: Callable[[float], float] | None = None,
+        interval: tuple[float, float] | None = None,
         max_len: int = 1024,
         max_submits: int = 8,
     ):
@@ -53,6 +55,8 @@ class Notebook:
         hidden: 못 본 곡선 목록(또는 만드는 함수). 없으면 지금 곡선만으로 채점.
         store : `정의` 저장소 (다음 곡선으로 넘어가도 유지하려면 이전 notebook.store 를 넘긴다).
         x     : 문제에 x=값 이 주어진 경우 그 값.
+        f     : 곡선 없이 수식만 주어진 문제(학교)에서 쓸 f.
+        interval: 곡선 없이 a, b 만 주어진 문제(학교)의 (a, b).
         """
         self.ids: list[int] = []
         self.mask: list[int] = []
@@ -66,8 +70,13 @@ class Notebook:
         self.vars: dict = {}
         if curve is not None:
             self.vars.update(a=curve.a, b=curve.b, f=curve.f)
+        if f is not None:
+            self.vars["f"] = f
+        if interval is not None:
+            self.vars["a"], self.vars["b"] = float(interval[0]), float(interval[1])
         if x is not None:
             self.vars["x"] = float(x)
+        self.last_calc = None   # 마지막 계산기 결과 (숫자, True/False, 오류면 None)
         self.max_len, self.max_submits = max_len, max_submits
         self.buf: list[str] = []
         self.sub: list[str] | None = None
@@ -144,8 +153,10 @@ class Notebook:
                 out = ["참" if val else "거짓"]
             else:
                 out = tokenize(fmt_num(val))
+            self.last_calc = val
         except SAFE_ERRORS:
             out = ["오류"]
+            self.last_calc = None
         return self._force(out)
 
     def _run_statement(self) -> list[int]:
