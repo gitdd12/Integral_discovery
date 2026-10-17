@@ -54,7 +54,7 @@ if __name__ == "__main__":
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=0.0)
     if "opt" in ck:
         opt.load_state_dict(ck["opt"])
-    gen = torch.Generator(device="cpu")
+    gen = torch.Generator(device=device)
     gen.manual_seed(a.seed + rnd)
 
     def save():
