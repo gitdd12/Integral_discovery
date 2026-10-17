@@ -45,7 +45,8 @@ if __name__ == "__main__":
     res = evaluate(model, a.n, a.seed, verbose=a.show)
     print(f"\nstep {ck.get('step')}  ({time.time()-t:.0f}초)")
     for k, v in res.items():
-        print(f"  {k:14s} {v*100:5.1f}%  {'통과' if v >= .9 else '미달'}")
-    print("합격" if all(v >= .9 for v in res.values()) else "불합격")
+        tag = ("통과" if v >= .9 else "미달") if k in school.PASS_SETS else "참고"
+        print(f"  {k:14s} {v*100:5.1f}%  {tag}")
+    print("합격" if all(res[k] >= .9 for k in school.PASS_SETS) else "불합격")
     if a.json:
         json.dump(res, open(a.json, "w"), ensure_ascii=False, indent=1)

@@ -368,7 +368,7 @@ def sample_train(rng) -> Example:
 TEST_SETS: dict[str, Callable] = {
     # ---- PLAN.md 5.3 의 네 가지
     "new_shapes": lambda rng: t_frame_or_t(rng),
-    "big_numbers": lambda rng: t_rect(rng, maxd=5, mind=5, cat="big_numbers"),   # 학습은 4자리까지
+    "big_numbers": lambda rng: t_rect(rng, maxd=4, mind=4, cat="big_numbers"),   # 가로·세로 모두 4자리 = 학습 중 가장 큰 값 (5자리 이상은 실험에 안 쓰므로 시험 안 함)
     "nested": lambda rng: t_nested(rng),
     "new_formulas": lambda rng: t_plug(rng, TEST_X_FAMILIES, "new_formulas"),
     # ---- 참고용: 학습 범위를 한 칸 넘는 것
