@@ -49,6 +49,7 @@ class Notebook:
         interval: tuple[float, float] | None = None,
         max_len: int = 1024,
         max_submits: int = 8,
+        min_submits: int = 0,
     ):
         """prompt: 문제 문장(토큰 문자열 또는 id). curve 가 있으면 target 은 그 곡선의 넓이.
 
@@ -77,7 +78,7 @@ class Notebook:
         if x is not None:
             self.vars["x"] = float(x)
         self.last_calc = None   # 마지막 계산기 결과 (숫자, True/False, 오류면 None)
-        self.max_len, self.max_submits = max_len, max_submits
+        self.max_len, self.max_submits, self.min_submits = max_len, max_submits, min_submits
         self.buf: list[str] = []
         self.sub: list[str] | None = None
         self.sub_bad = False
@@ -97,6 +98,11 @@ class Notebook:
         for i in out:
             self._append(i, 0)
         return out
+
+    @property
+    def eos_ok(self) -> bool:
+        """끝내도 되는가: 최소 제출 횟수를 채웠으면 True (샘플러가 아니면 <eos> 를 못 뽑게 막는다)."""
+        return len(self.submissions) >= self.min_submits
 
     # ---------------------------------------------------------------- 입력
     def feed(self, tok_id: int) -> list[int]:

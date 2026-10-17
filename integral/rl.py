@@ -31,6 +31,7 @@ class RLConfig:
     lr: float = 1e-4
     school_frac: float = 0.2
     max_len: int = 1024
+    min_submits: int = 0             # 이만큼 제출하기 전에는 끝낼 수 없다 (횟수만 강제, 방법은 안 알려줌)
     min_keep_score: float = 1e-9     # 0점(문법 오류·실행 불가 등)은 따라하지 않는다
     dup_sim: float = 0.9             # 마지막 제출 글자 유사도가 이 이상이면 같은 풀이로 본다
 
@@ -82,7 +83,7 @@ def collect(model, rng, cfg: RLConfig, device, gen=None, store=None):
     for c, sd in zip(curves, seeds):
         hidden = siblings(c.kind, sd)         # 같은 곡선의 시도들이 같은 시험 곡선을 쓴다
         for _ in range(cfg.k):
-            nbs.append(new_episode(c, sd, store=store, max_len=cfg.max_len))
+            nbs.append(new_episode(c, sd, store=store, max_len=cfg.max_len, min_submits=cfg.min_submits))
             nbs[-1]._hidden = hidden
         groups.append(list(range(len(nbs) - cfg.k, len(nbs))))
     run_notebooks_cached(model, nbs, temperature=cfg.temperature, device=device, gen=gen)

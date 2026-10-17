@@ -381,3 +381,17 @@ def test_cached_step_matches_full_forward_and_generation():
     run_notebooks(m, n1, max_new=60)
     run_notebooks_cached(m, n2)
     assert [n.ids for n in n1] == [n.ids for n in n2]
+
+
+def test_min_submits_blocks_eos_in_sampler():
+    import torch
+    from integral.generate import _mask_logits, allowed_mask
+    nb = nb_for()
+    nb.min_submits = 2
+    assert not nb.eos_ok
+    lg = torch.zeros(1, V.VOCAB_SIZE)
+    out = _mask_logits(lg, [nb], allowed_mask("cpu"))
+    assert out[0, V.EOS_ID] == float("-inf")
+    nb.feed_text("제출[ 1 ]\n제출[ 2 ]\n")
+    assert nb.eos_ok
+    assert _mask_logits(lg, [nb], allowed_mask("cpu"))[0, V.EOS_ID] == 0

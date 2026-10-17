@@ -27,6 +27,7 @@ if __name__ == "__main__":
     ap.add_argument("--keep", type=int, default=2)
     ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--temperature", type=float, default=1.0)
+    ap.add_argument("--min_submits", type=int, default=5, help="이 횟수만큼 제출하기 전에는 끝낼 수 없음")
     ap.add_argument("--school_frac", type=float, default=0.2)
     ap.add_argument("--save_every", type=int, default=50)
     ap.add_argument("--thought_every", type=int, default=1000)
@@ -39,7 +40,7 @@ if __name__ == "__main__":
     torch.set_num_threads(a.threads)
     os.makedirs(os.path.join(a.out, "thoughts"), exist_ok=True)
     cfg = rl.RLConfig(n_curves=a.n_curves, k=a.k, keep=a.keep, temperature=a.temperature,
-                      lr=a.lr, school_frac=a.school_frac)
+                      lr=a.lr, school_frac=a.school_frac, min_submits=a.min_submits)
     ck_path = os.path.join(a.out, "ckpt.pt")
     rnd = 0
     if os.path.exists(ck_path):

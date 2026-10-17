@@ -20,6 +20,15 @@ def allowed_mask(device):
     return _ALLOWED[key]
 
 
+def _mask_logits(logits, rows_nb, allowed):
+    """허용 안 된 토큰 + (최소 제출 횟수를 못 채운 줄의) <eos> 를 막는다."""
+    m = allowed.unsqueeze(0).repeat(len(rows_nb), 1)
+    for r, nb in enumerate(rows_nb):
+        if not nb.eos_ok:
+            m[r, V.EOS_ID] = False
+    return logits.masked_fill(~m, float("-inf"))
+
+
 def _pick(logits, temperature, gen):
     if temperature > 0:
         return torch.multinomial(torch.softmax(logits / temperature, dim=-1), 1, generator=gen).squeeze(1)
@@ -42,7 +51,7 @@ def run_notebooks(model, notebooks, max_new=400, temperature=0.0, device="cpu", 
             batch[r, : len(ids)] = torch.tensor(ids)
             last.append(len(ids) - 1)
         logits = model(batch.to(device))[torch.arange(len(active)), torch.tensor(last)]
-        nxt = _pick(logits.masked_fill(~allowed, float("-inf")), temperature, gen)
+        nxt = _pick(_mask_logits(logits, [notebooks[i] for i in active], allowed), temperature, gen)
         for r, i in enumerate(active):
             notebooks[i].feed(int(nxt[r]))
         active = [i for i in active if not notebooks[i].done]
@@ -76,7 +85,7 @@ def run_notebooks_cached(model, notebooks, temperature=0.0, device="cpu", gen=No
             if ptr[i] == len(notebooks[i].ids):
                 need.append(i)
         if need:
-            sel = logits[torch.tensor(need)].masked_fill(~allowed, float("-inf"))
+            sel = _mask_logits(logits[torch.tensor(need)], [notebooks[i] for i in need], allowed)
             nxt = _pick(sel, temperature, gen)
             for r, i in enumerate(need):
                 notebooks[i].feed(int(nxt[r]))
