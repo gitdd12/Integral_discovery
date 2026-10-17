@@ -101,6 +101,12 @@ def pslot(rng, used=()):
             return s
 
 
+def pslots(rng, k):
+    """서로 다른 이름 k 개. 연속 번호로 주어 이름이 겹치는 실수를 줄인다."""
+    base = int(rng.integers(0, 32 - k + 1))
+    return [f"p{base + j}" for j in range(k)]
+
+
 # ------------------------------------------------------------------ 템플릿
 def t_rect(rng, maxd=4, mind=1, cat="rect") -> Example:
     w, h = rdig(rng, maxd, mind, .2), rdig(rng, maxd, 1, .2)
@@ -154,7 +160,7 @@ def t_plug(rng, families=TRAIN_X_FAMILIES, cat="plug") -> Example:
         if not (math.isfinite(y) and abs(y) < 1e6):
             continue
         f = lambda xx, fn=fn: fn({"x": xx}, {})
-        p = ["<bos>", "문제:", "곡선:", "f(", "x", ")", "="] + tokenize(text) + ["x", "="] + tokenize(ntext(v)) \
+        p = ["<bos>", "문제:", "곡선:", "f(", "x", ")", "="] + tokenize(text) + ["\n", "x", "="] + tokenize(ntext(v)) \
             + ["높이?", "\n"]
         return Example(cat, p, f"f({ntext(v)})=\n", "calc", y, x=v, f=f)
     raise RuntimeError
@@ -180,7 +186,7 @@ def _shape_prompt(rs):
 
 
 def t_shape(rng, k=None, maxd=3, cat="shape", rs=None) -> Example:
-    k = k or int(rng.choice([2, 3, 4, 5, 6], p=[.3, .3, .2, .1, .1]))
+    k = k or int(rng.choice([2, 3, 4, 5], p=[.3, .3, .25, .15]))
     rs = rs or _rect_list(rng, k, maxd)
     total = sum(w * h for w, h in rs)
     rects = [f"rect({ntext(w)},{ntext(h)})" for w, h in rs]
@@ -189,9 +195,7 @@ def t_shape(rng, k=None, maxd=3, cat="shape", rs=None) -> Example:
         lines = [r + "=" for r in rects]
         lines.append("+".join(ntext(w * h) for w, h in rs) + "=")
     elif style == "define":  # 정의로 저장했다가 다시 쓰기
-        slots = []
-        for _ in rs:
-            slots.append(pslot(rng, slots))
+        slots = pslots(rng, len(rs))
         lines = [f"정의 {s}={r}" for s, r in zip(slots, rects)] + ["+".join(slots) + "="]
     else:
         lines = ["+".join(rects) + "="]
@@ -229,19 +233,15 @@ def _sep(rng):
     return str(rng.choice(["\n", ";"]))
 
 
-def t_loop(rng, max_nd=3, min_nd=1, max_sd=3, cat="loop") -> Example:
-    n = int(rdig(rng, max_nd, min_nd))
-    if n < 2:
-        n = 2
-    s = int(rdig(rng, max_sd)) if rng.random() > .1 else 0
-    e = s + n - 1
+def t_loop(rng, max_nd=3, min_nd=1, cat="loop") -> Example:
+    """1 부터 K 까지 더하기. (S 부터 E 까지는 모델이 E-S+1 을 암산해야 해서 도구 쓰기 시험이 아니게 된다.)"""
+    k = max(2, int(rdig(rng, max_nd, min_nd)))
     slot = pslot(rng)
-    opts = ["i"] if s == 0 else (["i+1", "1+i", "N-i"] if s == 1 else ["i+S", "S+i"])
-    body = str(rng.choice(opts)).replace("S", str(s))
+    body = str(rng.choice(["i+1", "1+i", "N-i"]))
     sep = _sep(rng)
-    resp = f"정의 {slot}=0{sep}반복 N={n}: 정의 {slot}={slot}+{body}{sep}{slot}=\n"
-    p = ["<bos>", "문제:"] + tokenize(str(s)) + ["부터"] + tokenize(str(e)) + ["까지", "더하기?", "\n"]
-    return Example(cat, p, resp, "calc", float(n * (s + e) // 2))
+    resp = f"정의 {slot}=0{sep}반복 N={k}: 정의 {slot}={slot}+{body}{sep}{slot}=\n"
+    p = ["<bos>", "문제:", "1", "부터"] + tokenize(str(k)) + ["까지", "더하기?", "\n"]
+    return Example(cat, p, resp, "calc", float(k * (k + 1) // 2))
 
 
 def _rand_arith(rng, depth, leaf):
@@ -303,13 +303,12 @@ def t_submit(rng, cat="submit") -> Example:
     kind = rng.choice(["loop", "rect", "shape", "calc"], p=[.3, .15, .3, .25])
     sep = _sep(rng)
     if kind == "loop":
-        n = max(2, int(rdig(rng, 3)))
-        s = int(rdig(rng, 3))
-        e = s + n - 1
+        k = max(2, int(rdig(rng, 3)))
         slot = pslot(rng)
-        resp = f"제출[ 정의 {slot}=0{sep}반복 N={n}: 정의 {slot}={slot}+i+{s}{sep}{slot} ]\n"
-        p = ["<bos>", "문제:"] + tokenize(str(s)) + ["부터"] + tokenize(str(e)) + ["까지", "더하기?", "제출?", "\n"]
-        return Example(cat, p, resp, "submit", float(n * (s + e) // 2))
+        body = str(rng.choice(["i+1", "1+i", "N-i"]))
+        resp = f"제출[ 정의 {slot}=0{sep}반복 N={k}: 정의 {slot}={slot}+{body}{sep}{slot} ]\n"
+        p = ["<bos>", "문제:", "1", "부터"] + tokenize(str(k)) + ["까지", "더하기?", "제출?", "\n"]
+        return Example(cat, p, resp, "submit", float(k * (k + 1) // 2))
     if kind == "rect":
         w, h = float(int(rdig(rng, 4))), float(int(rdig(rng, 4)))
         p = ["<bos>", "문제:", "직사각형", "가로"] + tokenize(ntext(w)) + ["세로"] + tokenize(ntext(h)) + ["넓이?", "제출?", "\n"]
@@ -322,9 +321,7 @@ def t_submit(rng, cat="submit") -> Example:
         if rng.random() < 0.5:
             resp = "제출[ " + "+".join(rects) + " ]\n"
         else:
-            slots = []
-            for _ in rs:
-                slots.append(pslot(rng, slots))
+            slots = pslots(rng, len(rs))
             resp = "제출[ " + sep.join([f"정의 {s}={r}" for s, r in zip(slots, rects)] + ["+".join(slots)]) + " ]\n"
         return Example(cat, p, resp, "submit", sum(w * h for w, h in rs))
     for _ in range(200):
@@ -375,8 +372,8 @@ TEST_SETS: dict[str, Callable] = {
     "nested": lambda rng: t_nested(rng),
     "new_formulas": lambda rng: t_plug(rng, TEST_X_FAMILIES, "new_formulas"),
     # ---- 참고용: 학습 범위를 한 칸 넘는 것
-    "more_pieces": lambda rng: t_shape(rng, k=int(rng.choice([7, 8])), maxd=3, cat="more_pieces"),
-    "longer_loop": lambda rng: t_loop(rng, max_nd=4, min_nd=4, max_sd=3, cat="longer_loop"),
+    "more_pieces": lambda rng: t_shape(rng, k=int(rng.choice([6, 7])), maxd=3, cat="more_pieces"),
+    "longer_loop": lambda rng: t_loop(rng, max_nd=4, min_nd=4, cat="longer_loop"),
     "long_calc": lambda rng: t_calc(rng, depth=5, cat="long_calc"),
 }
 PASS_SETS = ["train_like", "new_shapes", "big_numbers", "nested", "new_formulas"]

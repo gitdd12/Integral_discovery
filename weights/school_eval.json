@@ -1,0 +1,10 @@
+{
+ "train_like": 0.9966666666666667,
+ "new_shapes": 0.9966666666666667,
+ "big_numbers": 0.29,
+ "nested": 0.9933333333333333,
+ "new_formulas": 0.9566666666666667,
+ "more_pieces": 0.19,
+ "longer_loop": 0.0,
+ "long_calc": 0.4633333333333333
+}
