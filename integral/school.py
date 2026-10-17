@@ -474,14 +474,80 @@ def t_retry(rng, cat="retry") -> Example:
     raise RuntimeError
 
 
+# ------------------------------------------------------------------ 식 안에서 자유롭게 (조합 연습)
+def _tree(rng, depth, leaf, funcs=()):
+    """leaf() 로 잎을 만들고 사칙연산·rect( 로 엮은 식 (글자)."""
+    if depth == 0 or rng.random() < 0.3:
+        return leaf()
+    r = rng.random()
+    if "rect" in funcs and r < 0.3:
+        return f"rect({_tree(rng, depth - 1, leaf, funcs)},{_tree(rng, depth - 1, leaf, funcs)})"
+    op = str(rng.choice(["+", "-", "×", "÷"], p=[.3, .25, .3, .15]))
+    return f"{_wrap(_tree(rng, depth - 1, leaf, funcs))}{op}{_wrap(_tree(rng, depth - 1, leaf, funcs))}"
+
+
+def t_exec(rng, cat="exec_loop", max_depth=2) -> Example:
+    """반복 안의 식에 i, N 을 자유롭게 쓰는 코드를 그대로 실행해 보기. 곡선·f( 는 없다.
+    (코드가 문제로 주어지고, 모델은 같은 코드를 쓴 다음 계산기로 결과를 읽는다.)"""
+    from .interp import Ctx, parse_program, run_program
+
+    for _ in range(300):
+        leaf = lambda: str(rng.choice(["i", "N", ntext(rdig(rng, 2))]))
+        body = _tree(rng, int(rng.integers(1, max_depth + 1)), leaf, funcs=("rect",))
+        if "i" not in tokenize(body):
+            continue
+        k = max(2, int(rdig(rng, 2)))
+        slot = pslot(rng)
+        code = f"정의 {slot}=0;반복 N={k}: 정의 {slot}={slot}+{_wrap(body)};{slot}"
+        try:
+            t = run_program(parse_program(tokenize(code)), {}, {}, Ctx())
+        except Exception:
+            continue
+        if not (math.isfinite(t) and abs(t) < 1e8):
+            continue
+        sep = _sep(rng)
+        resp = code.replace(";", sep) + "=\n"
+        p = ["<bos>", "문제:"] + tokenize(code) + ["계산?", "\n"]
+        return Example(cat, p, resp, "calc", float(t))
+    raise RuntimeError
+
+
+def t_fexpr(rng, cat="f_args") -> Example:
+    """f( 안에 a, b, 숫자로 만든 식을 넣어 계산하기. 반복·rect( 는 없다."""
+    from .curves import random_curve
+
+    for _ in range(300):
+        c = random_curve(rng)
+        sub = rng.random() < 0.4
+        arg_leaf = lambda: str(rng.choice(["a", "b", ntext(float(int(rdig(rng, 2))))]))
+        farg = lambda: f"f({_tree(rng, int(rng.integers(1, 3)), arg_leaf)})"
+        leaf = lambda: str(rng.choice([farg(), ntext(float(int(rdig(rng, 2))))]))
+        expr = _tree(rng, int(rng.integers(1, 3)), leaf)
+        if "f(" not in expr:
+            continue
+        try:
+            y = compile_ast(parse_expr(tokenize(expr)))({"a": c.a, "b": c.b, "f": c.f}, {})
+        except Exception:
+            continue
+        if not (math.isfinite(y) and 1e-6 < abs(y) < 1e6):
+            continue
+        p = ["<bos>", "문제:"] + tokenize(expr) + ["계산?"] + (["제출?"] if sub else []) \
+            + ["곡선:", "f(", "x", ")", "="] + tokenize(c.text) \
+            + ["구간:", "a", "="] + tokenize(fmt_num(c.a)) + ["b", "="] + tokenize(fmt_num(c.b)) + ["\n"]
+        resp = f"제출[ {expr} ]\n" if sub else f"{expr}=\n"
+        return Example(cat, p, resp, "submit" if sub else "calc", float(y), f=c.f, interval=(c.a, c.b))
+    raise RuntimeError
+
+
 def _is_int_expr(expr):
     return "." not in expr
 
 
 # ------------------------------------------------------------------ 섞기
 TRAIN_MIX = [
-    ("rect", 0.06), ("plug", 0.07), ("shape", 0.17), ("loop", 0.10),
-    ("calc", 0.06), ("calc_ab", 0.05), ("submit", 0.15), ("format", 0.16), ("retry", 0.18),
+    ("rect", 0.06), ("plug", 0.05), ("shape", 0.13), ("loop", 0.10),
+    ("calc", 0.05), ("calc_ab", 0.05), ("submit", 0.13), ("format", 0.13), ("retry", 0.16),
+    ("exec", 0.07), ("fexpr", 0.07),
 ]
 
 
@@ -504,6 +570,10 @@ def sample_train(rng) -> Example:
         return t_format(rng)
     if k == "retry":
         return t_retry(rng)
+    if k == "exec":
+        return t_exec(rng)
+    if k == "fexpr":
+        return t_fexpr(rng)
     return t_submit(rng)
 
 
@@ -514,10 +584,12 @@ TEST_SETS: dict[str, Callable] = {
     "nested": lambda rng: t_nested(rng),
     "new_formulas": lambda rng: t_plug(rng, TEST_X_FAMILIES, "new_formulas"),
     "format_real": lambda rng: t_format(rng, "format_real"),   # 진짜 문제 모양, 처음 보는 곡선
-    "retry_fix": lambda rng: t_retry(rng, "retry_fix"),         # 틀린 제출 뒤 오차를 보고 다시 제출
+    "retry_fix": lambda rng: t_retry(rng, "retry_fix"),
+    "exec_loop": lambda rng: t_exec(rng, "exec_loop"),           # 반복 안 식에서 i, N 자유롭게
+    "f_args": lambda rng: t_fexpr(rng, "f_args"),                 # f( 안에 a, b, 숫자 식         # 틀린 제출 뒤 오차를 보고 다시 제출
     # ---- 참고용: 학습 범위를 한 칸 넘는 것
     "more_pieces": lambda rng: t_shape(rng, k=int(rng.choice([6, 7])), maxd=3, cat="more_pieces"),
     "longer_loop": lambda rng: t_loop(rng, max_nd=4, min_nd=4, cat="longer_loop"),
     "long_calc": lambda rng: t_calc(rng, depth=5, cat="long_calc"),
 }
-PASS_SETS = ["train_like", "new_shapes", "big_numbers", "nested", "new_formulas", "format_real", "retry_fix"]
+PASS_SETS = ["train_like", "new_shapes", "big_numbers", "nested", "new_formulas", "format_real", "retry_fix", "exec_loop", "f_args"]
