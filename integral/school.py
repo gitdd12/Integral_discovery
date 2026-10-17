@@ -33,11 +33,12 @@ class Example:
     x: float | None = None
     f: Callable | None = None
     interval: tuple | None = None
+    min_submits: int = 0            # >0 이면 이만큼 제출하기 전엔 코드가 다음 `제출[` 를 써 준다
 
 
 def build(ex: Example, response: str | None = None) -> Notebook:
     nb = Notebook(ex.prompt, target=ex.target if ex.mode == "submit" else None,
-                  x=ex.x, f=ex.f, interval=ex.interval, max_len=512)
+                  x=ex.x, f=ex.f, interval=ex.interval, max_len=512, min_submits=ex.min_submits)
     if response is not None:
         nb.feed_text(response)
     return nb
@@ -383,14 +384,104 @@ def t_format(rng, cat="format") -> Example:
     raise RuntimeError
 
 
+# ------------------------------------------------------------------ 다시 제출 (A2)
+def _slip(rng, toks):
+    """맞는 절차(토큰 목록)에서 사소한 실수 하나를 만든다. 반복 횟수(N=)는 건드리지 않는다."""
+    opts = []
+    nums = []
+    i = 0
+    while i < len(toks):
+        if toks[i] in V.DIGITS:
+            j = i
+            while j < len(toks) and toks[j] in V.DIGITS:
+                j += 1
+            if not (i >= 2 and toks[i - 2:i] == ["N", "="]):
+                nums.append((i, j))
+            i = j
+        else:
+            i += 1
+    if nums:
+        opts.append("num")
+    if any(t in ("a", "b") for t in toks):
+        opts.append("ab")
+    ops = [k for k, t in enumerate(toks) if t in ("+", "-", "×", "÷") and k > 0]
+    if ops:
+        opts.append("op")
+    if not opts:
+        return None
+    kind = str(rng.choice(opts))
+    out = list(toks)
+    if kind == "num":
+        i, j = nums[int(rng.integers(len(nums)))]
+        v = int("".join(toks[i:j]))
+        d = int(rng.integers(1, max(2, v // 2 + 1)))
+        nv = v + d if (v == 0 or rng.random() < .5) else max(0, v - d)
+        if nv == v or nv > 10000:
+            return None
+        out[i:j] = list(str(nv))
+    elif kind == "ab":
+        k = [k for k, t in enumerate(toks) if t in ("a", "b")][0]
+        out[k] = "b" if toks[k] == "a" else "a"
+    else:
+        k = ops[int(rng.integers(len(ops)))]
+        out[k] = {"+": "-", "-": "+", "×": "÷", "÷": "×"}[toks[k]]
+    return out
+
+
+def _body_text(toks):
+    return V.decode(V.ids_of(toks)).strip()
+
+
+def t_retry(rng, cat="retry") -> Example:
+    """제출 → 오차 → 다시 제출. 넓이와 무관한 문제에서 '사소한 실수를 한 제출 뒤에 오차를 보고 맞게 고쳐 쓰기'
+    (또는 이미 맞았으면 같은 걸 다시). 쪼개기·직사각형 쌓기와는 무관한 일반 습관이다."""
+    for _ in range(300):
+        base = t_format(rng, cat) if rng.random() < .5 else t_submit(rng, cat)
+        if base.mode != "submit":
+            continue
+        body = base.response.strip()
+        assert body.startswith("제출[") and body.endswith("]")
+        right = tokenize(body[len("제출["):-1])
+        n = int(rng.choice([2, 3], p=[.7, .3]))
+        wrongs, fine = [], True
+        n_wrong = int(rng.choice([0, 1, n - 1], p=[.2, .5, .3])) if n == 3 else int(rng.choice([0, 1], p=[.2, .8]))
+        for _k in range(n_wrong):
+            w = _slip(rng, right)
+            if w is None:
+                fine = False
+                break
+            wrongs.append(w)
+        if not fine:
+            continue
+        seq = wrongs + [right] * (n - len(wrongs))
+        resp = "제출[ " + " ] ".join(_body_text(t) for t in seq) + " ]\n"
+        ex = Example(cat, base.prompt, resp, "submit", base.target, x=base.x, f=base.f,
+                     interval=base.interval, min_submits=n)
+        # 실수한 제출은 실제로 오차가 있어야 하고(유한), 마지막은 맞아야 한다
+        nb = build(ex, resp)
+        subs = nb.submissions
+        if len(subs) != n or not check(nb, ex):
+            continue
+        errs = []
+        for k in range(len(wrongs)):
+            nb2 = build(Example(cat, base.prompt, "", "submit", base.target, x=base.x, f=base.f,
+                                interval=base.interval))
+            nb2.feed_text("제출[ " + _body_text(wrongs[k]) + " ]")
+            errs.append(nb2.last_feedback)
+        if any(e is None or not (1e-4 < e < 100) for e in errs):
+            continue
+        return ex
+    raise RuntimeError
+
+
 def _is_int_expr(expr):
     return "." not in expr
 
 
 # ------------------------------------------------------------------ 섞기
 TRAIN_MIX = [
-    ("rect", 0.07), ("plug", 0.08), ("shape", 0.20), ("loop", 0.12),
-    ("calc", 0.07), ("calc_ab", 0.06), ("submit", 0.22), ("format", 0.18),
+    ("rect", 0.06), ("plug", 0.07), ("shape", 0.17), ("loop", 0.10),
+    ("calc", 0.06), ("calc_ab", 0.05), ("submit", 0.15), ("format", 0.16), ("retry", 0.18),
 ]
 
 
@@ -411,6 +502,8 @@ def sample_train(rng) -> Example:
         return t_calc(rng, with_ab=True, cat="calc_ab")
     if k == "format":
         return t_format(rng)
+    if k == "retry":
+        return t_retry(rng)
     return t_submit(rng)
 
 
@@ -421,9 +514,10 @@ TEST_SETS: dict[str, Callable] = {
     "nested": lambda rng: t_nested(rng),
     "new_formulas": lambda rng: t_plug(rng, TEST_X_FAMILIES, "new_formulas"),
     "format_real": lambda rng: t_format(rng, "format_real"),   # 진짜 문제 모양, 처음 보는 곡선
+    "retry_fix": lambda rng: t_retry(rng, "retry_fix"),         # 틀린 제출 뒤 오차를 보고 다시 제출
     # ---- 참고용: 학습 범위를 한 칸 넘는 것
     "more_pieces": lambda rng: t_shape(rng, k=int(rng.choice([6, 7])), maxd=3, cat="more_pieces"),
     "longer_loop": lambda rng: t_loop(rng, max_nd=4, min_nd=4, cat="longer_loop"),
     "long_calc": lambda rng: t_calc(rng, depth=5, cat="long_calc"),
 }
-PASS_SETS = ["train_like", "new_shapes", "big_numbers", "nested", "new_formulas", "format_real"]
+PASS_SETS = ["train_like", "new_shapes", "big_numbers", "nested", "new_formulas", "format_real", "retry_fix"]
