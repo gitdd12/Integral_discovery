@@ -57,7 +57,7 @@ class Compiled:
     """라이브러리의 개념마다 풀어 쓴 틀과 실행 함수."""
 
     def __init__(self, lib: dict):
-        self.lib = lib
+        self.lib = dict(lib)
         self.xt = {}
         self.fn = {}
         for name, m in lib.items():

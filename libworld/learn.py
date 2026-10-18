@@ -377,8 +377,11 @@ def choose(criterion, cands, ctx):
     raise ValueError(criterion)
 
 
-def run_experiment(criterion, seed, iters=8, budget=150000, per_iter=2, log=print):
+def run_experiment(criterion, seed, iters=8, budget=150000, per_iter=2, log=print, subset=0):
     train, test = make_tasks(seed)
+    if subset:
+        # 보조 실험: 시드마다 학습 과제 일부만 (기준과 무관하게 같은 부분집합)
+        train = random.Random(f"subset-{seed}").sample(train, subset)
     byname = {t.name: t for t in train}
     fam = {t.name: t.family for t in train}
     outcat = {t.name: t.outcat for t in train}
