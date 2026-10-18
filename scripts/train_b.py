@@ -34,6 +34,7 @@ if __name__ == "__main__":
     ap.add_argument("--n_train", type=int, default=60000); ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--eval_every", type=int, default=500); ap.add_argument("--threads", type=int, default=4)
     ap.add_argument("--rect", action="store_true", help="rect(가로,세로)=가로×세로 도구를 줌")
+    ap.add_argument("--norm", action="store_true", help="첫 질의 높이 대비 비율로 입력 정규화, 폭×높이는 환경이 곱함")
     ap.add_argument("--fixed", default="", help="'grid' = 균등 격자 대조군, 'random' = 무작위 고정 위치 대조군")
     a_ = ap.parse_args()
     torch.set_num_threads(a_.threads); torch.manual_seed(a_.seed)
@@ -42,7 +43,7 @@ if __name__ == "__main__":
     print(f"data {time.time()-t0:.0f}s", flush=True)
     a, b, g, y = tens(S["train"]); n = len(a)
     ev = {k: v for k, v in S.items() if k != "train"}
-    m = QueryNet(K=a_.K, d=a_.d, layers=a_.layers, rect=a_.rect)
+    m = QueryNet(K=a_.K, d=a_.d, layers=a_.layers, rect=a_.rect, norm=a_.norm)
     print("params", sum(p.numel() for p in m.parameters()), flush=True)
     opt = torch.optim.AdamW(m.parameters(), a_.lr, betas=(0.9, 0.98), weight_decay=a_.wd)
     K = a_.K
