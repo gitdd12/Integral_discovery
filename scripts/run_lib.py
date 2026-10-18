@@ -14,14 +14,14 @@ ALL = ["none", "compress", "progress", "general", "random", "memorize"]
 
 
 def job(a):
-    crit, seed, out, budget, iters, subset = a
+    crit, seed, out, budget, iters, subset, conj = a
     path = os.path.join(out, f"{crit}_s{seed}.json")
     if os.path.exists(path):
         return path
     t = time.time()
-    hist = run_experiment(crit, seed, iters=iters, budget=budget, subset=subset, log=lambda s: print(s, flush=True))
+    hist = run_experiment(crit, seed, iters=iters, budget=budget, subset=subset, conj=conj, log=lambda s: print(s, flush=True))
     with open(path + ".tmp", "w") as f:
-        json.dump({"criterion": crit, "seed": seed, "budget": budget, "subset": subset, "secs": time.time() - t, "hist": hist},
+        json.dump({"criterion": crit, "seed": seed, "budget": budget, "subset": subset, "conj": conj, "secs": time.time() - t, "hist": hist},
                   f, ensure_ascii=False)
     os.replace(path + ".tmp", path)
     return path
@@ -36,10 +36,11 @@ if __name__ == "__main__":
     ap.add_argument("--budget", type=int, default=150000)
     ap.add_argument("--iters", type=int, default=8)
     ap.add_argument("--subset", type=int, default=0)
+    ap.add_argument("--conj", type=int, default=0)
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     os.environ.setdefault("LIBWORLD_CACHE", os.path.join(a.out, "cache"))
-    jobs = [(c, s, a.out, a.budget, a.iters, a.subset) for s in range(a.seeds) for c in a.criteria]
+    jobs = [(c, s, a.out, a.budget, a.iters, a.subset, a.conj) for s in range(a.seeds) for c in a.criteria]
     with Pool(a.workers) as p:
         for path in p.imap_unordered(job, jobs):
             print("done", path, flush=True)

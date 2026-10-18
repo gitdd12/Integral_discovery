@@ -92,5 +92,5 @@ for c in ORDER:
         for m in final(runs[c][0])["lib"]:
             L.append(f"- `{m['name']}` = `{m['tmpl']}`  (구멍 {m['kinds'] or '없음'} → {m['ret']})")
         L.append("")
-open("RESULTS2.md", "w").write("\n".join(L) + "\n")
+open(sys.argv[2] if len(sys.argv) > 2 else "RESULTS2.md", "w").write("\n".join(L) + "\n")
 print("\n".join(L))

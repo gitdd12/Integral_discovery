@@ -377,7 +377,82 @@ def choose(criterion, cands, ctx):
     raise ValueError(criterion)
 
 
-def run_experiment(criterion, seed, iters=8, budget=150000, per_iter=2, log=print, subset=0):
+def random_program(rng, lib, bodies, incat, outcat, depth=3):
+    """현재 라이브러리로 무작위 프로그램(바깥 식)을 만든다. 크기 제한은 호출자가 확인한다."""
+    def body(k):
+        pool = bodies.Y if k == "Y" else bodies.A
+        costs = [c for c in pool if pool[c] and c <= 5]
+        c = rng.choice(costs)
+        return rng.choice(pool[c])[0]
+
+    macs = {"I": [], "L": []}
+    for n, m in lib.items():
+        if m.ret in macs:
+            macs[m.ret].append((n, m))
+
+    def gen(cat, d):
+        opts = []
+        if cat == incat:
+            opts += [("x",)] * 3
+        if d <= 0:
+            return rng.choice(opts) if opts else (("k", rng.randint(0, 3)) if cat == "I" else ("range", ("x",)) if incat == "I" else ("x",))
+        if cat == "I":
+            opts += [("k", rng.randint(0, 3)), "len", "fold", "arith"]
+        else:
+            opts += ["range", "map", "filter"]
+        opts += [("app", nm) for nm, m in macs[cat]] * 2
+        o = rng.choice(opts)
+        if isinstance(o, tuple) and o[0] in ("x", "k"):
+            return o
+        if o == "len":
+            return ("len", gen("L", d - 1))
+        if o == "fold":
+            return ("fold", body("A"), gen("I", d - 1), gen("L", d - 1))
+        if o == "arith":
+            return (rng.choice(ARITH), gen("I", d - 1), gen("I", d - 1))
+        if o == "range":
+            return ("range", gen("I", d - 1))
+        if o in ("map", "filter"):
+            return (o, body("Y"), gen("L", d - 1))
+        nm = o[1]
+        m = lib[nm]
+        args = []
+        for k in m.kinds:
+            args.append(body(k) if k in "YA" else gen(k, d - 1))
+        return ("app:" + nm,) + tuple(args)
+
+    return gen(outcat, depth)
+
+
+def conjecture(rng, lib, seed, it, n, budget, existing_outputs):
+    from .tasks import NEXT, NSEARCH, Task, _gen_input
+
+    cl, bodies = compiled_for(lib)
+    out = []
+    tries = 0
+    while len(out) < n and tries < n * 20:
+        tries += 1
+        incat, outcat = rng.choice(["L", "I"]), rng.choice(["I", "L"])
+        prog = random_program(rng, lib, bodies, incat, outcat)
+        if size(prog) > 12 or size(prog) < 4:
+            continue
+        xs = [_gen_input(rng, incat) for _ in range(NSEARCH + NEXT)]
+        if incat == "I":
+            xs[0], xs[1] = 0, 13
+        else:
+            xs[0] = ()
+        ys = run(prog, lib, xs)
+        if ys is None or len(set(ys[:NSEARCH])) < 4:
+            continue
+        sig = (incat, tuple(ys[:NSEARCH]), tuple(map(repr, xs[:NSEARCH])))
+        if sig in existing_outputs:
+            continue
+        existing_outputs.add(sig)
+        out.append(Task(f"gen{it}_{len(out)}", "gen", incat, outcat, prog, xs, ys))
+    return out
+
+
+def run_experiment(criterion, seed, iters=8, budget=150000, per_iter=2, log=print, subset=0, conj=0):
     train, test = make_tasks(seed)
     if subset:
         # 보조 실험: 시드마다 학습 과제 일부만 (기준과 무관하게 같은 부분집합)
@@ -413,7 +488,7 @@ def run_experiment(criterion, seed, iters=8, budget=150000, per_iter=2, log=prin
             "sols_ok": sols_ok,
             "iter": it, "lib_size": len(lib), "lib_depth": max([depth(m, lib) for m in lib.values()] or [0]),
             "methods": sum(has_method_hole(m) for m in lib.values()),
-            "train_solved": len(sols), "train_size": total_size(sols),
+            "train_solved": sum(not k.startswith("gen") for k in sols), "gen_solved": sum(k.startswith("gen") for k in sols), "train_size": total_size(sols),
             "test_solved": sum(r["solved"] for r in rows),
             "test_method_used": sum(r["method"] for r in rows),
             "test_app_used": sum(r["app"] for r in rows),
@@ -424,11 +499,22 @@ def run_experiment(criterion, seed, iters=8, budget=150000, per_iter=2, log=prin
         }
         hist.append(rec)
         assert sols_ok == len(sols), "다시 쓴 풀이가 틀어졌다"
-        log(f"[{criterion} s{seed}] it{it} lib={len(lib)} train={len(sols)}/{len(train)} "
+        log(f"[{criterion} s{seed}] it{it} lib={len(lib)} train={rec['train_solved']}/{len(train)} "
             f"test={rec['test_solved']}/{len(test)} method_used={rec['test_method_used']} "
             f"({rec['secs']}s)")
 
+    gen_seen: set = set()
+
+    def conjecture_phase(it):
+        for t in conjecture(rng, lib, seed, it, conj, budget, gen_seen):
+            e, c, ev = solve_cached(t, lib, seed, budget)
+            if e is not None:
+                sols[t.name] = e
+                byname[t.name], fam[t.name], outcat[t.name] = t, "gen", t.outcat
+
     wake()
+    if conj:
+        conjecture_phase(0)
     evaluate(0)
     for it in range(1, iters + 1):
         for _ in range(per_iter):
@@ -459,5 +545,7 @@ def run_experiment(criterion, seed, iters=8, budget=150000, per_iter=2, log=prin
             for k in list(sols):
                 sols[k] = rewrite(sols[k], outcat[k], name, m, lib)
         wake()
+        if conj:
+            conjecture_phase(it)
         evaluate(it)
     return hist
