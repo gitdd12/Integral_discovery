@@ -30,11 +30,12 @@ def sinusoid(n, d):
 class QueryNet(nn.Module):
     """매 질의 뒤에 그 시점의 넓이 추정(log)을 낸다 (anytime). 위치 정보는 사인 함수 → 학습 때 못 본 긴 K 도 입력 가능."""
 
-    def __init__(self, K=16, d=128, layers=2, heads=4):
+    def __init__(self, K=16, d=128, layers=2, heads=4, rect=False):
         super().__init__()
-        self.K, self.d = K, d
+        self.K, self.d, self.rect = K, d, rect
         self.inp0 = nn.Linear(2, d)          # (a, 폭) → 첫 토큰
-        self.inp = nn.Linear(2, d)           # (이전 위치, 이전 높이) → 다음 토큰
+        self.inp = nn.Linear(4 if rect else 2, d)  # (이전 위치[, 폭], 이전 높이[, 조각 넓이]) → 다음 토큰
+        self.w_head = nn.Linear(d, 1)        # rect 도구: 조각의 폭(구간 길이 대비 비율)
         layer = nn.TransformerEncoderLayer(d, heads, 4 * d, dropout=0.0, batch_first=True, norm_first=True)
         self.enc = nn.TransformerEncoder(layer, layers, enable_nested_tensor=False)
         self.norm = nn.LayerNorm(d)
@@ -46,7 +47,7 @@ class QueryNet(nn.Module):
         K = K or self.K
         pe = sinusoid(K + 1, self.d).to(a.device)
         toks = [self.inp0(torch.stack([a / 5.0, torch.log(b - a)], -1))[:, None]]
-        ests, us = [], []
+        ests, us, ws = [], [], []
         for t in range(K + 1):
             n = len(toks)
             x = torch.cat(toks, 1) + pe[:n]
@@ -57,8 +58,16 @@ class QueryNet(nn.Module):
                 break
             u = torch.sigmoid(self.u_head(h))[:, 0] if fixed_u is None else fixed_u[:, t]
             f = lerp_query(grid, u)
-            toks.append(self.inp(torch.stack([u, torch.log(f.clamp_min(1e-6))], -1))[:, None])
+            if self.rect:
+                w = torch.sigmoid(self.w_head(h))[:, 0]
+                r = w * (b - a) * f                      # rect(가로, 세로) = 가로 × 세로 (환경이 계산해서 돌려줌)
+                feat = [u, w, torch.log(f.clamp_min(1e-6)), torch.log(r.clamp_min(1e-9))]
+                ws.append(w)
+            else:
+                feat = [u, torch.log(f.clamp_min(1e-6))]
+            toks.append(self.inp(torch.stack(feat, -1))[:, None])
             us.append(u)
+        self.last_w = torch.stack(ws, 1) if ws else None
         return torch.stack(ests, 1), torch.stack(us, 1)
 
 
