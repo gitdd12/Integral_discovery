@@ -310,7 +310,7 @@ def compiled_for(lib):
 
 
 def solve_cached(task, lib, seed, budget):
-    key = hashlib.sha1(repr((task.name, seed, lib_sig(lib), budget, "v1")).encode()).hexdigest()
+    key = hashlib.sha1(repr((task.name, seed, lib_sig(lib), budget, "v2", task.all_x, task.all_y)).encode()).hexdigest()
     path = os.path.join(CACHE_DIR, key[:2], key + ".pkl")
     if os.path.exists(path):
         try:
@@ -498,7 +498,9 @@ def run_experiment(criterion, seed, iters=8, budget=150000, per_iter=2, log=prin
             "test": rows, "secs": round(time.time() - t00, 1),
         }
         hist.append(rec)
-        assert sols_ok == len(sols), "다시 쓴 풀이가 틀어졌다"
+        if sols_ok != len(sols):
+            bad = [(k, show(e)) for k, e in sols.items() if run(e, lib, byname[k].all_x) != list(byname[k].all_y)]
+            raise AssertionError(f"다시 쓴 풀이가 틀어졌다: {bad[:3]}")
         log(f"[{criterion} s{seed}] it{it} lib={len(lib)} train={rec['train_solved']}/{len(train)} "
             f"test={rec['test_solved']}/{len(test)} method_used={rec['test_method_used']} "
             f"({rec['secs']}s)")

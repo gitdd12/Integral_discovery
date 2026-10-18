@@ -81,3 +81,8 @@
 
 ### 아직 사용자 결정이 필요한 것 (4단계 전)
 - `정의` 저장소를 다음 곡선으로 넘기는 방식(현재 `Notebook(store=...)`로 넘길 수만 있음, 기본은 매 문제 빈 저장소).
+
+## [최신 2026-10-18] 방향 전환 후 2차 실험(라이브러리 학습) 완료
+설계 `DESIGN2.md`, 코드 `libworld/`, 결과 `RESULTS2.md`(요약 + 한계), 표 `RESULTS2_*.md`, 원자료 `runs2*/`.
+실행: `PYTHONPATH=. python -m pytest tests/test_libworld.py -q`, `python scripts/run_lib.py --seeds 10`, `python scripts/summarize_lib.py runs2`.
+결론: 개념 쌓기는 처음 보는 조합 문제를 6→20/24로 늘림(Q1 확인). 개념 고르는 기준 간 차이는 확인 안 됨(Q2 미확인). 한계는 RESULTS2.md.
