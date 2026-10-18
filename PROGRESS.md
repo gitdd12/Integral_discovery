@@ -2,7 +2,9 @@
 
 실행: `PYTHONPATH=. python3 -m pytest tests -q`  /  `PYTHONPATH=. python3 scripts/demo_notebook.py`
 
-## 현재 단계: 4단계 시범 운행 1차 완료(결과 아래) → 최소 제출 횟수 옵션 추가, 2차 시범 운행 대기
+## [최신] 1차 결과 정리 완료(REPORT.md). 다음: 메타 학습 방식 재설계(적응이 필수인 문제 분포, 곡선 넓이는 제외 후 시험) — 사용자 승인됨
+
+## (이전) 현재 단계: 4단계 시범 운행 1차 완료(결과 아래) → 최소 제출 횟수 옵션 추가, 2차 시범 운행 대기
 
 ### 학교 v5 (A2 '다시 제출' 연습 추가, 1에포크 재학습) — 현재 `weights/school.pt`
 합격 7묶음(train_like, new_shapes, big_numbers, nested, new_formulas, format_real, retry_fix) 모두 99.7~100%.
