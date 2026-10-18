@@ -19,37 +19,47 @@ def lerp_query(grid, u):
     return g0 * (1 - w) + g1 * w
 
 
+def sinusoid(n, d):
+    pos = torch.arange(n).float()[:, None]
+    div = torch.exp(torch.arange(0, d, 2).float() * (-math.log(10000.0) / d))
+    pe = torch.zeros(n, d)
+    pe[:, 0::2], pe[:, 1::2] = torch.sin(pos * div), torch.cos(pos * div)
+    return pe
+
+
 class QueryNet(nn.Module):
+    """매 질의 뒤에 그 시점의 넓이 추정(log)을 낸다 (anytime). 위치 정보는 사인 함수 → 학습 때 못 본 긴 K 도 입력 가능."""
+
     def __init__(self, K=16, d=128, layers=2, heads=4):
         super().__init__()
-        self.K = K
+        self.K, self.d = K, d
         self.inp0 = nn.Linear(2, d)          # (a, 폭) → 첫 토큰
         self.inp = nn.Linear(2, d)           # (이전 위치, 이전 높이) → 다음 토큰
-        self.pos = nn.Parameter(torch.zeros(K + 1, d))
         layer = nn.TransformerEncoderLayer(d, heads, 4 * d, dropout=0.0, batch_first=True, norm_first=True)
-        self.enc = nn.TransformerEncoder(layer, layers)
+        self.enc = nn.TransformerEncoder(layer, layers, enable_nested_tensor=False)
         self.norm = nn.LayerNorm(d)
         self.u_head = nn.Linear(d, 1)
         self.out_head = nn.Linear(d, 1)
 
     def forward(self, a, b, grid, K=None, fixed_u=None):
-        """a,b:[B], grid:[B,G]. 반환: log넓이 예측 [B], 질의 위치 [B,K]."""
+        """반환: 추정 [B, K+1] (t번 질의한 뒤의 log넓이; t=0 은 아직 아무것도 안 잼), 질의 위치 [B,K]."""
         K = K or self.K
-        B = a.shape[0]
+        pe = sinusoid(K + 1, self.d).to(a.device)
         toks = [self.inp0(torch.stack([a / 5.0, torch.log(b - a)], -1))[:, None]]
-        us = []
-        for t in range(K):
-            x = torch.cat(toks, 1) + self.pos[: len(toks)]
-            mask = torch.triu(torch.ones(len(toks), len(toks), dtype=torch.bool, device=x.device), 1)
+        ests, us = [], []
+        for t in range(K + 1):
+            n = len(toks)
+            x = torch.cat(toks, 1) + pe[:n]
+            mask = torch.triu(torch.ones(n, n, dtype=torch.bool, device=x.device), 1)
             h = self.norm(self.enc(x, mask=mask))[:, -1]
+            ests.append(self.out_head(h)[:, 0])
+            if t == K:
+                break
             u = torch.sigmoid(self.u_head(h))[:, 0] if fixed_u is None else fixed_u[:, t]
             f = lerp_query(grid, u)
             toks.append(self.inp(torch.stack([u, torch.log(f.clamp_min(1e-6))], -1))[:, None])
             us.append(u)
-        x = torch.cat(toks, 1) + self.pos[: len(toks)]
-        mask = torch.triu(torch.ones(len(toks), len(toks), dtype=torch.bool, device=x.device), 1)
-        h = self.norm(self.enc(x, mask=mask))[:, -1]
-        return self.out_head(h)[:, 0], torch.stack(us, 1)
+        return torch.stack(ests, 1), torch.stack(us, 1)
 
 
 def baselines(grid, a, b, K):

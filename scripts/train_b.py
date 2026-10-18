@@ -9,21 +9,25 @@ def tens(S):
             torch.tensor(S["area"]).float().log())
 
 @torch.no_grad()
-def evaluate(m, sets, K, fixed_u=None):
+def evaluate(m, sets, Ks, fixed_u=None):
+    """sets 마다 각 K 에서의 평균 |log 오차|. 반환 {set: {K: err}}."""
     m.eval(); out = {}
+    Kmax = max(Ks)
     for name, S in sets.items():
         a, b, g, y = tens(S)
-        errs = []
-        for i in range(0, len(a), 500):
-            p, _ = m(a[i:i+500], b[i:i+500], g[i:i+500], K=K,
-                     fixed_u=None if fixed_u is None else fixed_u(len(a[i:i+500]), K))
-            errs.append((p - y[i:i+500]).abs())
-        out[name] = float(torch.cat(errs).mean())
+        errs = {K: [] for K in Ks}
+        for i in range(0, len(a), 250):
+            sl = slice(i, i + 250)
+            fu = None if fixed_u is None else fixed_u(len(a[sl]), Kmax)
+            e, _ = m(a[sl], b[sl], g[sl], K=Kmax, fixed_u=fu)
+            for K in Ks:
+                errs[K].append((e[:, K] - y[sl]).abs())
+        out[name] = {K: float(torch.cat(v).mean()) for K, v in errs.items()}
     m.train(); return out
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default="runs/b1"); ap.add_argument("--K", type=int, default=8)
+    ap.add_argument("--out", default="runs/b1"); ap.add_argument("--K", type=int, default=16)
     ap.add_argument("--steps", type=int, default=6000); ap.add_argument("--bs", type=int, default=128)
     ap.add_argument("--lr", type=float, default=1e-3); ap.add_argument("--wd", type=float, default=0.1)
     ap.add_argument("--d", type=int, default=128); ap.add_argument("--layers", type=int, default=2)
@@ -47,23 +51,27 @@ if __name__ == "__main__":
         rr = torch.rand(K); fx = lambda B, K: rr.expand(B, K)
     else:
         fx = None
-    # 기준선 (같은 K)
+    EK = [4, 8, 16, 32, 64, 128]       # 평가하는 질의 횟수 (학습은 최대 K=16; 32 이상은 학습에 없던 횟수)
     base = {}
     for name, Sv in ev.items():
-        aa, bb, gg, yy = tens(Sv); mid, trap = baselines(gg, aa, bb, K)
-        base[name] = dict(mid=float((mid.log() - yy).abs().mean()), trap=float((trap.log() - yy).abs().mean()))
+        aa, bb, gg, yy = tens(Sv); base[name] = {}
+        for k in EK:
+            mid, trap = baselines(gg, aa, bb, k)
+            base[name][k] = dict(mid=float((mid.log() - yy).abs().mean()), trap=float((trap.log() - yy).abs().mean()))
     json.dump(base, open(f"{a_.out}/baselines.json", "w"), indent=1)
     log = open(f"{a_.out}/log.jsonl", "a")
     for step in range(1, a_.steps + 1):
         lr = a_.lr * min(1, step / 200) * (0.1 + 0.9 * 0.5 * (1 + math.cos(math.pi * step / a_.steps)))
         for gp in opt.param_groups: gp["lr"] = lr
         i = torch.randint(0, n, (a_.bs,))
-        p, _ = m(a[i], b[i], g[i], K=K, fixed_u=None if fx is None else fx(a_.bs, K))
-        loss = (p - y[i]).abs().mean()
+        e, _ = m(a[i], b[i], g[i], K=K, fixed_u=None if fx is None else fx(a_.bs, K))
+        loss = (e[:, 1:] - y[i][:, None]).abs().mean()          # 모든 시점의 오차를 합산
         opt.zero_grad(); loss.backward(); torch.nn.utils.clip_grad_norm_(m.parameters(), 1.0); opt.step()
         if step % a_.eval_every == 0 or step == a_.steps:
+            full = step == a_.steps or step % (a_.eval_every * 4) == 0
             r = dict(step=step, train=float(loss.detach()), secs=round(time.time()-t0),
-                     **{"ev_" + k: v for k, v in evaluate(m, ev, K, fx).items()})
+                     ev=evaluate(m, ev if full else {k: ev[k] for k in ("val", "test_stair")},
+                                 EK if full else [4, 8, 16], fx))
             log.write(json.dumps(r) + "\n"); log.flush(); print(r, flush=True)
             torch.save({"model": m.state_dict(), "args": vars(a_)}, f"{a_.out}/model.pt")
     print("끝", flush=True)
