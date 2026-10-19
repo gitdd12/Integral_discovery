@@ -80,6 +80,7 @@ def train_rl(agent, cfg, steps=20000, B=256, lr=3e-4, wd=0.05, lam=0.0, eps=0.0,
     score: 'log' 확신도 로그 점수 / 'zero_one' 맞음·틀림."""
     rng = np.random.default_rng(seed)
     opt = torch.optim.AdamW(agent.params(), lr=lr, weight_decay=wd)
+    sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda i: 0.1 + 0.9 * 0.5 * (1 + math.cos(math.pi * min(1.0, i / steps))))
     t0 = time.time()
     hist = []
     for step in range(steps):
@@ -95,14 +96,15 @@ def train_rl(agent, cfg, steps=20000, B=256, lr=3e-4, wd=0.05, lam=0.0, eps=0.0,
         else:
             r_j = ((z > 0) == same).float()
         r_e = r_j - lam * sp["lens"]
-        adv_j = (r_j - r_j.mean()) / (r_j.std() + 1e-6)
-        adv_e = (r_e - r_e.mean()) / (r_e.std() + 1e-6)
+        adv_j = r_j - r_j.mean()                                           # 기준값만 빼고 크기는 보존 (표준편차로 나누면 불안정했다)
+        adv_e = r_e - r_e.mean()
         logp_j = -((z - m) ** 2) / (2 * sigma ** 2)                       # 가우시안 정책의 로그확률 (상수 제외)
         loss = -(adv_j.detach() * logp_j).mean() - (adv_e.detach() * sp["logp"]).mean() - ent_coef * sp["ent"].mean() - usage * usage_entropy(sp["probs0"])
         opt.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(agent.params(), 1.0)
         opt.step()
+        sched.step()
         if step % eval_every == 0 or step == steps - 1:
             acc, ln = evaluate(agent, cfg, rng, eps=eps, min_len=min_len)
             hist.append((step, acc, ln, r_j.mean().item()))
@@ -132,7 +134,7 @@ def train_pair(agent, cfg, steps=3000, B=256, lr=1e-3, wd=0.05, mode="rl", sigma
         else:
             z = (m + sigma * torch.randn_like(m)).detach()
             r = torch.where(same, F.logsigmoid(z), F.logsigmoid(-z))
-            adv = (r - r.mean()) / (r.std() + 1e-6)
+            adv = r - r.mean()
             loss = -(adv.detach() * (-((z - m) ** 2) / (2 * sigma ** 2))).mean()
         opt.zero_grad()
         loss.backward()

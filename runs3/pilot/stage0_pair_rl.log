@@ -1,0 +1,6 @@
+[pair:rl] step 0 acc 0.498 (0s)
+[pair:rl] step 250 acc 0.918 (19s)
+[pair:rl] step 500 acc 0.965 (36s)
+[pair:rl] step 750 acc 0.962 (53s)
+[pair:rl] step 1000 acc 0.585 (70s)
+[pair:rl] step 1250 acc 1.000 (86s)
