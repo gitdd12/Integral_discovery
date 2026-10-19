@@ -5,3 +5,4 @@ data/
 runs/
 *.npy
 runs2/cache/
+runs3/stageA/ckpt_*.pt

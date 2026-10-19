@@ -18,7 +18,7 @@ steps = int(sys.argv[2]) if len(sys.argv) > 2 else 12000
 torch.set_num_threads(int(os.environ.get("THREADS", "1")))
 out = "runs3/stageA"
 os.makedirs(out, exist_ok=True)
-logf = open(f"{out}/s{seed}.log", "w")
+logf = open(f"{out}/s{seed}.log", "a")
 
 
 def log(s):
@@ -30,10 +30,39 @@ def log(s):
 torch.manual_seed(seed)
 cfg = SceneCfg(max_count=9, extra=6)
 ag = Agent(V=10, Lmax=1)
-train_pair(ag, cfg, steps=4000, mode="rl", lr=5e-4, eval_every=250, stop_acc=0.985, beta_fn=lambda f: 0.0, seed=seed, log=log)
+ckpt_path = f"{out}/ckpt_s{seed}.pt"
+
+
+def state():
+    return {"bb": ag.bb.state_dict(), "judge": ag.judge.state_dict(), "speaker": ag.speaker.state_dict()}
+
+
+def load(st):
+    ag.bb.load_state_dict(st["bb"])
+    ag.judge.load_state_dict(st["judge"])
+    ag.speaker.load_state_dict(st["speaker"])
+
+
+step0, opt_state, hist, pair_done = 0, None, [], False
+if os.path.exists(ckpt_path):                     # 컨테이너가 재시작돼도 이어서
+    ck = torch.load(ckpt_path)
+    load(ck["agent"])
+    step0, opt_state, hist, pair_done = ck["step"], ck["opt"], ck["hist"], ck["pair_done"]
+    log(f"체크포인트에서 이어하기: 단계 {step0}")
+if not pair_done:
+    train_pair(ag, cfg, steps=4000, mode="rl", lr=5e-4, eval_every=250, stop_acc=0.985, beta_fn=lambda f: 0.0, seed=seed, log=log)
+    torch.save({"agent": state(), "step": 0, "opt": None, "hist": [], "pair_done": True}, ckpt_path)
+
+
+def on_ckpt(step, opt, h):
+    torch.save({"agent": state(), "step": step, "opt": opt.state_dict(), "hist": h, "pair_done": True}, ckpt_path + ".tmp")
+    os.replace(ckpt_path + ".tmp", ckpt_path)
+
+
 hist = train_rl(ag, cfg, steps=steps, B=512, lr=3e-4, min_len=1, usage=0.5, ent_coef=0.03,
-                beta_fn=lambda f: 2.5 * min(1.0, f / 0.5), score="log", eval_every=500, seed=seed, log=log)
-torch.save({"bb": ag.bb.state_dict(), "judge": ag.judge.state_dict(), "speaker": ag.speaker.state_dict()}, f"{out}/agent_s{seed}.pt")
+                beta_fn=lambda f: 2.5 * min(1.0, f / 0.5), score="log", eval_every=500, seed=seed, log=log,
+                step0=step0, opt_state=opt_state, on_ckpt=on_ckpt, hist=hist)
+torch.save(state(), f"{out}/agent_s{seed}.pt")
 rep = full_report(ag, cfg, np.random.default_rng(1000 + seed), min_len=1)
 json.dump({"seed": seed, "steps": steps, "hist": hist, "report": rep}, open(f"{out}/s{seed}.json", "w"), ensure_ascii=False, default=str)
 log("REPORT " + json.dumps(rep, default=str)[:1500])

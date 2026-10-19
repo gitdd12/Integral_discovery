@@ -75,15 +75,20 @@ def train_sup(agent, cfg, steps=3000, B=256, lr=3e-4, wd=0.05, seed=0, beta_fn=N
 
 
 def train_rl(agent, cfg, steps=20000, B=256, lr=3e-4, wd=0.05, lam=0.0, eps=0.0, sigma0=1.0, sigma1=0.3,
-             ent_coef=0.01, score="log", beta_fn=None, seed=0, log=print, eval_every=500, stop_acc=None, min_len=0, usage=0.0):
+             ent_coef=0.01, score="log", beta_fn=None, seed=0, log=print, eval_every=500, stop_acc=None, min_len=0, usage=0.0,
+             step0=0, opt_state=None, on_ckpt=None, ckpt_every=1000, hist=None):
     """강화학습: 점수 숫자 하나만 받아 정책 경사법(평균 기준값). 점수식을 미분해서 쓰지 않는다.
     score: 'log' 확신도 로그 점수 / 'zero_one' 맞음·틀림."""
-    rng = np.random.default_rng(seed)
+    rng = np.random.default_rng(seed + step0)
     opt = torch.optim.AdamW(agent.params(), lr=lr, weight_decay=wd)
+    if opt_state is not None:
+        opt.load_state_dict(opt_state)
     sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda i: 0.1 + 0.9 * 0.5 * (1 + math.cos(math.pi * min(1.0, i / steps))))
+    for _ in range(step0):
+        sched.step()
     t0 = time.time()
-    hist = []
-    for step in range(steps):
+    hist = [] if hist is None else hist
+    for step in range(step0, steps):
         beta = beta_fn(step / steps) if beta_fn else 0.0
         b = to_t(make_batch(cfg, rng, B, beta=beta), agent.dev)
         sp = agent.speaker(b["s1"], b["l1"], mode="sample", eps=eps, min_len=min_len)
@@ -105,6 +110,8 @@ def train_rl(agent, cfg, steps=20000, B=256, lr=3e-4, wd=0.05, lam=0.0, eps=0.0,
         torch.nn.utils.clip_grad_norm_(agent.params(), 1.0)
         opt.step()
         sched.step()
+        if on_ckpt and (step + 1) % ckpt_every == 0:
+            on_ckpt(step + 1, opt, hist)
         if step % eval_every == 0 or step == steps - 1:
             acc, ln = evaluate(agent, cfg, rng, eps=eps, min_len=min_len)
             hist.append((step, acc, ln, r_j.mean().item()))
