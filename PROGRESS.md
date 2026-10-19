@@ -86,3 +86,8 @@
 설계 `DESIGN2.md`, 코드 `libworld/`, 결과 `RESULTS2.md`(요약 + 한계), 표 `RESULTS2_*.md`, 원자료 `runs2*/`.
 실행: `PYTHONPATH=. python -m pytest tests/test_libworld.py -q`, `python scripts/run_lib.py --seeds 10`, `python scripts/summarize_lib.py runs2`.
 결론: 개념 쌓기는 처음 보는 조합 문제를 6→20/24로 늘림(Q1 확인). 개념 고르는 기준 간 차이는 확인 안 됨(Q2 미확인). 한계는 RESULTS2.md.
+
+## [최신 2026-10-19] 3차 실험(계단 1 "센다", DESIGN3.md) 구현·시범 운행 중
+코드 `countworld/`(scene·model·train·evaluate·shortcuts), 점검 `scripts/check_shortcuts.py`, 테스트 `tests/test_countworld.py`(5개 통과).
+확인됨: 지름길 점검(개수 뺀 특징·장면 하나만 본 분류기는 50%, 두 장면 다 본 분류기는 98.8%), 지도학습 점검으로 환경이 풀림(≈0.9),
+단계 0(T2) 강화학습으로 0.99, 단계 0 뒤 T4 강화학습이 0.85까지 오르나 이후 불안정(붕괴). 다음: 강화학습 안정화(학습률·배치), 시범 운행으로 λ·ε 정하기.
