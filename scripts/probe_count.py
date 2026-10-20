@@ -1,4 +1,5 @@
-"""단계 A 학습 결과 점검: 장면 읽는 몸통이 개수를 구분하는가(선형 탐침), 화자의 기호 선택이 개수별로 어떻게 생겼는가."""
+"""단계 A 학습 결과 점검: 장면 읽는 몸통이 개수를 구분하는가(선형 탐침), 화자의 기호 선택이 개수별로 어떻게 생겼는가.
+사용: python scripts/probe_count.py <가중치 폴더> <시드들...>   예: py -3.11 scripts/probe_count.py runs_local/A8 1 2 3"""
 import os
 import sys
 
@@ -14,9 +15,11 @@ from countworld.train import Agent, to_t  # noqa: E402
 torch.manual_seed(0)
 cfg = SceneCfg(max_count=9, extra=6)
 rng = np.random.default_rng(7)
-for seed in (1, 2, 3):
+folder = sys.argv[1] if len(sys.argv) > 1 else "runs3/stageA"
+seeds = [int(x) for x in sys.argv[2:]] or [1, 2, 3]
+for seed in seeds:
     ag = Agent(V=10, Lmax=1)
-    st = torch.load(f"runs3/stageA/agent_s{seed}.pt")
+    st = torch.load(f"{folder}/agent_s{seed}.pt", map_location="cpu")
     ag.bb.load_state_dict(st["bb"]); ag.judge.load_state_dict(st["judge"]); ag.speaker.load_state_dict(st["speaker"])
     X, Y, P = [], [], []
     with torch.no_grad():
