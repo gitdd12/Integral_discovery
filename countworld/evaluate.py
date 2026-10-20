@@ -20,11 +20,11 @@ def judge_acc(agent, cfg, rng, n=4096, eps=0.0, min_len=0, **kw):
 
 @torch.no_grad()
 def acc_adjacent(agent, cfg, rng, n=512, eps=0.0, min_len=0, types="train"):
-    """n 대 n+1 (양쪽 순서) 정확도를 n 별로."""
+    """n 대 n+1 균형 정확도(같은 쌍 반, 다른 쌍 반)를 n 별로. ※ 2026-10-21 전에는 다른 쌍만 냈다."""
     out = {}
     for k in range(cfg.max_count):
-        a = np.array([k, k + 1] * (n // 2))
-        bb = np.array([k + 1, k] * (n // 2))
+        a = np.array([k, k, k + 1, k + 1] * (n // 4))              # 같은 쌍과 다른 쌍을 반반 (2026-10-21 수정)
+        bb = np.array([k, k + 1, k, k + 1] * (n // 4))
         b = to_t(make_batch(cfg, rng, n, a=a, b=bb, types=types), agent.dev)
         sp = agent.speaker(b["s1"], b["l1"], mode="greedy", eps=eps, min_len=min_len)
         m = agent.listen(sp["syms"], b["s2"], b["l2"])

@@ -54,6 +54,35 @@ class Agent:
             j.load_state_dict(self.judges[0].state_dict())
         self.head0 = copy.deepcopy(self.judges[0].head.state_dict())
 
+    def snapshot(self):
+        import copy
+        return {"bb": copy.deepcopy(self.bb.state_dict()), "speaker": copy.deepcopy(self.speaker.state_dict()),
+                "judges": [copy.deepcopy(j.state_dict()) for j in self.judges]}
+
+    def load_snapshot(self, snap):
+        self.bb.load_state_dict(snap["bb"])
+        self.speaker.load_state_dict(snap["speaker"])
+        for j, sd in zip(self.judges, snap["judges"]):
+            j.load_state_dict(sd)
+
+    def restart_heads(self, opt=None):
+        """눈(몸통)은 두고, 화자의 기호 선택 부분과 판정자의 쪽지 읽는 부분만 처음부터 다시 시작.
+        판정자의 비교 머리는 단계 0 직후 상태로 되돌린다."""
+        sp = self.speaker
+        mods = [sp.init, sp.gru, sp.head, sp.sym_emb]
+        for j in self.judges:
+            j.msg_emb.reset_parameters()
+            j.msg_gru.reset_parameters()
+            if self.head0 is not None:
+                j.head.load_state_dict(self.head0)
+            mods += [j.msg_emb, j.msg_gru, j.head]
+        for m in mods[:4]:
+            m.reset_parameters()
+        if opt is not None:
+            for m in mods:
+                for p in m.parameters():
+                    opt.state.pop(p, None)
+
     def listen(self, msg, tok, length):
         """청자 평균 로짓 (평가용)."""
         return torch.stack([j(msg, tok, length) for j in self.judges]).mean(0)
@@ -107,8 +136,24 @@ def train_sup(agent, cfg, steps=3000, B=256, lr=3e-4, wd=0.05, seed=0, beta_fn=N
     return agent
 
 
+@torch.no_grad()
+def adjacent_score(agent, cfg, rng, n=256, min_len=0, eps=0.0):
+    """n 대 n+1 쌍 전체의 균형 잡힌 정확도 (재시작·최선 선택의 검증 점수. 개수 정답이 아니라 같다/다르다 결과만 쓴다)."""
+    accs = []
+    for k in range(cfg.max_count):
+        # 같은 쌍 (k,k),(k+1,k+1) 과 다른 쌍 (k,k+1),(k+1,k) 를 반반 섞는다 (다른 쌍만 내면 늘 "다르다"고 답해도 만점이 된다)
+        a = np.array([k, k, k + 1, k + 1] * (n // 4))
+        b = np.array([k, k + 1, k, k + 1] * (n // 4))
+        bt = to_t(make_batch(cfg, rng, n, a=a, b=b), agent.dev)
+        sp = agent.speaker(bt["s1"], bt["l1"], mode="greedy", eps=eps, min_len=min_len)
+        m = agent.listen(sp["syms"], bt["s2"], bt["l2"])
+        accs.append(((m > 0) == bt["answer"]).float().mean().item())
+    return float(np.mean(accs))
+
+
 def train_rl(agent, cfg, steps=20000, B=256, lr=3e-4, wd=0.05, lam=0.0, eps=0.0, sigma0=1.0, sigma1=0.3,
              ent_coef=0.01, score="log", beta_fn=None, seed=0, log=print, eval_every=500, stop_acc=None, min_len=0, usage=0.0, mi_cond=0.0, mi_ramp=0.0, refresh_every=0, refresh_stop=0.8, focus=0.0, focus_start=500,
+             restart_at=(), restart_thresh=0.95, restart_max=2, meta=None,
              step0=0, opt_state=None, on_ckpt=None, ckpt_every=1000, hist=None):
     """강화학습: 점수 숫자 하나만 받아 정책 경사법(평균 기준값). 점수식을 미분해서 쓰지 않는다.
     score: 'log' 확신도 로그 점수 / 'zero_one' 맞음·틀림."""
@@ -122,7 +167,22 @@ def train_rl(agent, cfg, steps=20000, B=256, lr=3e-4, wd=0.05, lam=0.0, eps=0.0,
     t0 = time.time()
     hist = [] if hist is None else hist
     err_tab = np.full((cfg.max_count + 1, cfg.max_count + 1), 0.5)       # 쌍별 최근 틀린 비율
+    if meta is None:
+        meta = dict(last_restart=0, done=0, best=-1.0, best_state=None, log=[])
+    restart_steps = {int(f * steps) for f in restart_at}
+    vrng = np.random.default_rng(777 + seed)
     for step in range(step0, steps):
+        if step in restart_steps and step > 0:                              # 재시작 점검: 검증 점수가 낮으면 기호 부분만 다시 시작
+            val = adjacent_score(agent, cfg, vrng, min_len=min_len, eps=eps)
+            if val > meta["best"]:
+                meta["best"], meta["best_state"] = val, agent.snapshot()
+            did = bool(val < restart_thresh and meta["done"] < restart_max)
+            meta["log"].append((step, round(val, 4), did))
+            log(f"[점검] step {step} 검증 점수(n 대 n+1 평균) {val:.3f} → {'재시작' if did else '유지'}")
+            if did:
+                agent.restart_heads(opt)
+                meta["last_restart"] = step
+                meta["done"] += 1
         beta = beta_fn(step / steps) if beta_fn else 0.0
         pw = None
         if focus and step >= focus_start:                                  # 실패 중심 출제: 최근에 많이 틀린 (개수, 개수) 쌍을 더 자주
@@ -144,7 +204,8 @@ def train_rl(agent, cfg, steps=20000, B=256, lr=3e-4, wd=0.05, lam=0.0, eps=0.0,
                 idx = (who == k).nonzero(as_tuple=True)[0]
                 if len(idx):
                     m = m.index_copy(0, idx, jk(sp["syms"][idx], b["s2"][idx], b["l2"][idx]))
-        sigma = sigma0 + (sigma1 - sigma0) * min(1.0, step / (0.5 * steps))
+        rel = step - meta["last_restart"]                                   # 마지막 재시작 이후 경과 단계
+        sigma = sigma0 + (sigma1 - sigma0) * min(1.0, rel / (0.5 * steps))
         z = (m + sigma * torch.randn_like(m)).detach()                    # 판정자의 행동(로짓), 잡음으로 시도
         same = b["answer"]
         if score == "log":
@@ -161,7 +222,7 @@ def train_rl(agent, cfg, steps=20000, B=256, lr=3e-4, wd=0.05, lam=0.0, eps=0.0,
         adv_j = r_j - r_j.mean()                                           # 기준값만 빼고 크기는 보존 (표준편차로 나누면 불안정했다)
         adv_e = r_e - r_e.mean()
         logp_j = -((z - m) ** 2) / (2 * sigma ** 2)                       # 가우시안 정책의 로그확률 (상수 제외)
-        ramp = min(1.0, step / (mi_ramp * steps)) if mi_ramp else 1.0       # 초반에는 탐색 보너스, 점차 '더미당 기호 결정' 규칙으로
+        ramp = min(1.0, rel / (mi_ramp * steps)) if mi_ramp else 1.0       # 초반에는 탐색 보너스, 점차 '더미당 기호 결정' 규칙으로
         loss = (-(adv_j.detach() * logp_j).mean() - (adv_e.detach() * sp["logp"]).mean()
                 - ent_coef * (1.0 - ramp if mi_ramp else 1.0) * sp["ent"].mean() - usage * usage_entropy(sp["probs0"], mi_cond * ramp))
         opt.zero_grad()
@@ -170,7 +231,7 @@ def train_rl(agent, cfg, steps=20000, B=256, lr=3e-4, wd=0.05, lam=0.0, eps=0.0,
         opt.step()
         sched.step()
         if on_ckpt and (step + 1) % ckpt_every == 0:
-            on_ckpt(step + 1, opt, hist)
+            on_ckpt(step + 1, opt, hist, meta)
         if step % eval_every == 0 or step == steps - 1:
             acc, ln = evaluate(agent, cfg, rng, eps=eps, min_len=min_len)
             hist.append((step, acc, ln, r_j.mean().item()))
@@ -178,6 +239,15 @@ def train_rl(agent, cfg, steps=20000, B=256, lr=3e-4, wd=0.05, lam=0.0, eps=0.0,
                 f"ent {sp['ent'].mean().item():.2f} ({time.time()-t0:.0f}s)")
             if stop_acc and acc >= stop_acc:
                 break
+    if restart_at:                                                         # 마지막 검증 후 최선의 상태로 복원
+        val = adjacent_score(agent, cfg, vrng, min_len=min_len, eps=eps)
+        if val >= meta["best"]:
+            meta["best"] = val
+            log(f"[최종] 검증 점수 {val:.3f} (최선) 유지")
+        elif meta["best_state"] is not None:
+            log(f"[최종] 검증 점수 {val:.3f} < 이전 최선 {meta['best']:.3f} → 최선 상태로 복원")
+            agent.load_snapshot(meta["best_state"])
+    agent.meta = meta
     return hist
 
 
