@@ -28,19 +28,47 @@ def to_t(batch, dev):
 
 
 class Agent:
-    def __init__(self, V, Lmax, d=64, layers=2, dev="cpu"):
-        self.V, self.Lmax, self.dev = V, Lmax, dev
+    def __init__(self, V, Lmax, d=64, layers=2, dev="cpu", K=1):
+        self.V, self.Lmax, self.dev, self.K = V, Lmax, dev, K
         self.bb = Backbone(d, layers).to(dev)
         self.speaker = Speaker(V, Lmax, self.bb, d).to(dev)
-        self.judge = Judge(V, Lmax, self.bb, d).to(dev)
+        self.judges = [Judge(V, Lmax, self.bb, d).to(dev) for _ in range(K)]
+        self.judge = self.judges[0]
+        self.head0 = None            # 단계 0 직후 비교 머리(새 청자의 시작점)
+        self.refresh_ptr = 0
 
     def params(self):
         seen, out = set(), []
-        for p in list(self.bb.parameters()) + list(self.speaker.parameters()) + list(self.judge.parameters()):
-            if id(p) not in seen:
-                seen.add(id(p))
-                out.append(p)
+        mods = [self.bb, self.speaker] + self.judges
+        for m in mods:
+            for p in m.parameters():
+                if id(p) not in seen:
+                    seen.add(id(p))
+                    out.append(p)
         return out
+
+    def sync_listeners(self):
+        """단계 0 뒤: 첫 청자의 가중치를 모든 청자에 복사하고 비교 머리를 저장."""
+        import copy
+        for j in self.judges[1:]:
+            j.load_state_dict(self.judges[0].state_dict())
+        self.head0 = copy.deepcopy(self.judges[0].head.state_dict())
+
+    def listen(self, msg, tok, length):
+        """청자 평균 로짓 (평가용)."""
+        return torch.stack([j(msg, tok, length) for j in self.judges]).mean(0)
+
+    def refresh_listener(self, opt=None):
+        """가장 오래된 청자의 기호 읽는 부분을 새로 초기화 (비교 머리는 단계 0 상태로)."""
+        j = self.judges[self.refresh_ptr % self.K]
+        j.msg_emb.reset_parameters()
+        j.msg_gru.reset_parameters()
+        j.head.load_state_dict(self.head0)
+        if opt is not None:
+            for mod in (j.msg_emb, j.msg_gru, j.head):
+                for p in mod.parameters():
+                    opt.state.pop(p, None)
+        self.refresh_ptr += 1
 
 
 @torch.no_grad()
@@ -48,7 +76,7 @@ def evaluate(agent, cfg, rng, n=2048, eps=0.0, min_len=0, **kw):
     """탐욕(가장 확률 높은 기호, 잡음 없는 판정자 평균)으로 정확도."""
     b = to_t(make_batch(cfg, rng, n, **kw), agent.dev)
     sp = agent.speaker(b["s1"], b["l1"], mode="greedy", eps=eps, min_len=min_len)
-    m = agent.judge(sp["syms"], b["s2"], b["l2"])
+    m = agent.listen(sp["syms"], b["s2"], b["l2"])
     pred = m > 0
     acc = (pred == b["answer"]).float().mean().item()
     return acc, sp["lens"].mean().item()
@@ -80,7 +108,7 @@ def train_sup(agent, cfg, steps=3000, B=256, lr=3e-4, wd=0.05, seed=0, beta_fn=N
 
 
 def train_rl(agent, cfg, steps=20000, B=256, lr=3e-4, wd=0.05, lam=0.0, eps=0.0, sigma0=1.0, sigma1=0.3,
-             ent_coef=0.01, score="log", beta_fn=None, seed=0, log=print, eval_every=500, stop_acc=None, min_len=0, usage=0.0, mi_cond=0.0, mi_ramp=0.0,
+             ent_coef=0.01, score="log", beta_fn=None, seed=0, log=print, eval_every=500, stop_acc=None, min_len=0, usage=0.0, mi_cond=0.0, mi_ramp=0.0, refresh_every=0, refresh_stop=0.8,
              step0=0, opt_state=None, on_ckpt=None, ckpt_every=1000, hist=None):
     """강화학습: 점수 숫자 하나만 받아 정책 경사법(평균 기준값). 점수식을 미분해서 쓰지 않는다.
     score: 'log' 확신도 로그 점수 / 'zero_one' 맞음·틀림."""
@@ -96,8 +124,18 @@ def train_rl(agent, cfg, steps=20000, B=256, lr=3e-4, wd=0.05, lam=0.0, eps=0.0,
     for step in range(step0, steps):
         beta = beta_fn(step / steps) if beta_fn else 0.0
         b = to_t(make_batch(cfg, rng, B, beta=beta), agent.dev)
+        if refresh_every and step > 0 and step % refresh_every == 0 and step < refresh_stop * steps:
+            agent.refresh_listener(opt)
         sp = agent.speaker(b["s1"], b["l1"], mode="sample", eps=eps, min_len=min_len)
-        m = agent.judge(sp["syms"], b["s2"], b["l2"])
+        if agent.K == 1:
+            m = agent.judge(sp["syms"], b["s2"], b["l2"])
+        else:                                                              # 판마다 무작위 청자 한 명
+            who = torch.randint(0, agent.K, (B,), device=agent.dev)
+            m = torch.zeros(B, device=agent.dev)
+            for k, jk in enumerate(agent.judges):
+                idx = (who == k).nonzero(as_tuple=True)[0]
+                if len(idx):
+                    m = m.index_copy(0, idx, jk(sp["syms"][idx], b["s2"][idx], b["l2"][idx]))
         sigma = sigma0 + (sigma1 - sigma0) * min(1.0, step / (0.5 * steps))
         z = (m + sigma * torch.randn_like(m)).detach()                    # 판정자의 행동(로짓), 잡음으로 시도
         same = b["answer"]

@@ -29,18 +29,23 @@ def log(s):
 
 torch.manual_seed(seed)
 cfg = SceneCfg(max_count=9, extra=6)
-ag = Agent(V=10, Lmax=1)
+K = int(os.environ.get("LISTENERS", 1))
+REFRESH = int(os.environ.get("REFRESH", 0))
+ag = Agent(V=10, Lmax=1, K=K)
 ckpt_path = f"{out}/ckpt_s{seed}.pt"
 
 
 def state():
-    return {"bb": ag.bb.state_dict(), "judge": ag.judge.state_dict(), "speaker": ag.speaker.state_dict()}
+    return {"bb": ag.bb.state_dict(), "judge": ag.judge.state_dict(), "speaker": ag.speaker.state_dict(),
+            "judges": [j.state_dict() for j in ag.judges], "head0": ag.head0, "ptr": ag.refresh_ptr}
 
 
 def load(st):
     ag.bb.load_state_dict(st["bb"])
-    ag.judge.load_state_dict(st["judge"])
     ag.speaker.load_state_dict(st["speaker"])
+    for j, sd in zip(ag.judges, st["judges"]):
+        j.load_state_dict(sd)
+    ag.head0, ag.refresh_ptr = st["head0"], st["ptr"]
 
 
 step0, opt_state, hist, pair_done = 0, None, [], False
@@ -51,6 +56,7 @@ if os.path.exists(ckpt_path):                     # 컨테이너가 재시작돼
     log(f"체크포인트에서 이어하기: 단계 {step0}")
 if not pair_done:
     train_pair(ag, cfg, steps=4000, mode="rl", lr=5e-4, eval_every=250, stop_acc=0.985, beta_fn=lambda f: 0.0, seed=seed, log=log)
+    ag.sync_listeners()
     torch.save({"agent": state(), "step": 0, "opt": None, "hist": [], "pair_done": True}, ckpt_path)
 
 
@@ -60,7 +66,7 @@ def on_ckpt(step, opt, h):
 
 
 USAGE, MI, RAMP = float(os.environ.get("USAGE", 0.5)), float(os.environ.get("MI", 0.0)), float(os.environ.get("RAMP", 0.0))
-hist = train_rl(ag, cfg, steps=steps, B=512, lr=3e-4, min_len=1, usage=USAGE, mi_cond=MI, mi_ramp=RAMP, ent_coef=0.03,
+hist = train_rl(ag, cfg, steps=steps, B=512, lr=3e-4, min_len=1, usage=USAGE, mi_cond=MI, mi_ramp=RAMP, refresh_every=REFRESH, ent_coef=float(os.environ.get("ENT", 0.03)),
                 beta_fn=lambda f: 2.5 * min(1.0, f / 0.5), score="log", eval_every=500, seed=seed, log=log,
                 step0=step0, opt_state=opt_state, on_ckpt=on_ckpt, hist=hist)
 torch.save(state(), f"{out}/agent_s{seed}.pt")

@@ -14,7 +14,7 @@ from .train import to_t
 def judge_acc(agent, cfg, rng, n=4096, eps=0.0, min_len=0, **kw):
     b = to_t(make_batch(cfg, rng, n, **kw), agent.dev)
     sp = agent.speaker(b["s1"], b["l1"], mode="greedy", eps=eps, min_len=min_len)
-    m = agent.judge(sp["syms"], b["s2"], b["l2"])
+    m = agent.listen(sp["syms"], b["s2"], b["l2"])
     return ((m > 0) == b["answer"]).float().mean().item()
 
 
@@ -27,7 +27,7 @@ def acc_adjacent(agent, cfg, rng, n=512, eps=0.0, min_len=0, types="train"):
         bb = np.array([k + 1, k] * (n // 2))
         b = to_t(make_batch(cfg, rng, n, a=a, b=bb, types=types), agent.dev)
         sp = agent.speaker(b["s1"], b["l1"], mode="greedy", eps=eps, min_len=min_len)
-        m = agent.judge(sp["syms"], b["s2"], b["l2"])
+        m = agent.listen(sp["syms"], b["s2"], b["l2"])
         out[k] = ((m > 0) == b["answer"]).float().mean().item()
     return out
 
