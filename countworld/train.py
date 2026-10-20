@@ -12,10 +12,15 @@ from .model import Backbone, Judge, Speaker
 from .scene import SceneCfg, make_batch
 
 
-def usage_entropy(probs0):
-    """배치 전체에서 첫 기호가 얼마나 고르게 쓰이는지(주변 엔트로피). 기호를 하나로 몰아 쓰는 것을 막는 약한 정규화."""
+def usage_entropy(probs0, mi_cond=0.0):
+    """배치 전체에서 첫 기호가 얼마나 고르게 쓰이는지(주변 엔트로피). 기호를 하나로 몰아 쓰는 것을 막는 약한 정규화.
+    mi_cond > 0 이면 '장면 하나당 기호는 결정적'일수록 보너스 (= 기호와 장면 사이 상호정보량): 개수와 무관하게 반반 섞어 쓰는 편법을 막는다."""
     q = probs0.mean(0)
-    return -(q * (q + 1e-9).log()).sum()
+    h_marg = -(q * (q + 1e-9).log()).sum()
+    if mi_cond == 0.0:
+        return h_marg
+    h_cond = -(probs0 * (probs0 + 1e-9).log()).sum(-1).mean()
+    return h_marg - mi_cond * h_cond
 
 
 def to_t(batch, dev):
@@ -63,7 +68,7 @@ def train_sup(agent, cfg, steps=3000, B=256, lr=3e-4, wd=0.05, seed=0, beta_fn=N
         me = soft @ agent.judge.msg_emb.weight
         alive = soft.sum(-1) > 0.5
         m = agent.judge(None, b["s2"], b["l2"], msg_embed=me, msg_alive=alive)
-        loss = F.binary_cross_entropy_with_logits(m, b["answer"].float()) - usage * usage_entropy(sp["probs0"])
+        loss = F.binary_cross_entropy_with_logits(m, b["answer"].float()) - usage * usage_entropy(sp["probs0"], mi_cond)
         opt.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(agent.params(), 1.0)
@@ -75,7 +80,7 @@ def train_sup(agent, cfg, steps=3000, B=256, lr=3e-4, wd=0.05, seed=0, beta_fn=N
 
 
 def train_rl(agent, cfg, steps=20000, B=256, lr=3e-4, wd=0.05, lam=0.0, eps=0.0, sigma0=1.0, sigma1=0.3,
-             ent_coef=0.01, score="log", beta_fn=None, seed=0, log=print, eval_every=500, stop_acc=None, min_len=0, usage=0.0,
+             ent_coef=0.01, score="log", beta_fn=None, seed=0, log=print, eval_every=500, stop_acc=None, min_len=0, usage=0.0, mi_cond=0.0,
              step0=0, opt_state=None, on_ckpt=None, ckpt_every=1000, hist=None):
     """강화학습: 점수 숫자 하나만 받아 정책 경사법(평균 기준값). 점수식을 미분해서 쓰지 않는다.
     score: 'log' 확신도 로그 점수 / 'zero_one' 맞음·틀림."""
@@ -104,7 +109,7 @@ def train_rl(agent, cfg, steps=20000, B=256, lr=3e-4, wd=0.05, lam=0.0, eps=0.0,
         adv_j = r_j - r_j.mean()                                           # 기준값만 빼고 크기는 보존 (표준편차로 나누면 불안정했다)
         adv_e = r_e - r_e.mean()
         logp_j = -((z - m) ** 2) / (2 * sigma ** 2)                       # 가우시안 정책의 로그확률 (상수 제외)
-        loss = -(adv_j.detach() * logp_j).mean() - (adv_e.detach() * sp["logp"]).mean() - ent_coef * sp["ent"].mean() - usage * usage_entropy(sp["probs0"])
+        loss = -(adv_j.detach() * logp_j).mean() - (adv_e.detach() * sp["logp"]).mean() - ent_coef * sp["ent"].mean() - usage * usage_entropy(sp["probs0"], mi_cond)
         opt.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(agent.params(), 1.0)

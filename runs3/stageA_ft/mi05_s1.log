@@ -1,0 +1,12 @@
+[rl:log] step 0 score -0.246 acc 0.923 len 1.00 ent 0.20 (2s)
+[rl:log] step 500 score -0.258 acc 0.913 len 1.00 ent 0.19 (122s)
+[rl:log] step 1000 score -0.254 acc 0.880 len 1.00 ent 0.19 (245s)
+[rl:log] step 1500 score -0.245 acc 0.860 len 1.00 ent 0.21 (369s)
+[rl:log] step 2000 score -0.251 acc 0.925 len 1.00 ent 0.20 (492s)
+[rl:log] step 2500 score -0.237 acc 0.882 len 1.00 ent 0.19 (613s)
+[rl:log] step 3000 score -0.213 acc 0.889 len 1.00 ent 0.19 (735s)
+[rl:log] step 3500 score -0.221 acc 0.915 len 1.00 ent 0.20 (858s)
+[rl:log] step 4000 score -0.251 acc 0.894 len 1.00 ent 0.19 (981s)
+[rl:log] step 4500 score -0.220 acc 0.905 len 1.00 ent 0.20 (1104s)
+[rl:log] step 4999 score -0.247 acc 0.915 len 1.00 ent 0.17 (1228s)
+REPORT {"e1_heldout_pairs": 0.833251953125, "e1_train": 0.90185546875, "e3_new_types": 0.906005859375, "e4_adjacent": {"0": 1.0, "1": 0.0, "2": 0.0859375, "3": 0.169921875, "4": 0.759765625, "5": 1.0, "6": 1.0, "7": 1.0, "8": 1.0}, "e5": {"consistency": 0.8685, "injective": 0.8666666666666667, "len_corr": 0.0, "modal": {"0": [7], "1": [5], "2": [5], "3": [5], "4": [5], "5": [6], "6": [2], "7": [0], "8": [3], "9": [1]}}}
