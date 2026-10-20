@@ -16,7 +16,7 @@ from countworld.train import Agent, train_pair, train_rl  # noqa: E402
 seed = int(sys.argv[1])
 steps = int(sys.argv[2]) if len(sys.argv) > 2 else 12000
 torch.set_num_threads(int(os.environ.get("THREADS", "1")))
-out = "runs3/stageA"
+out = os.environ.get("OUT", "runs3/stageA")
 os.makedirs(out, exist_ok=True)
 logf = open(f"{out}/s{seed}.log", "a")
 
@@ -59,7 +59,8 @@ def on_ckpt(step, opt, h):
     os.replace(ckpt_path + ".tmp", ckpt_path)
 
 
-hist = train_rl(ag, cfg, steps=steps, B=512, lr=3e-4, min_len=1, usage=0.5, ent_coef=0.03,
+USAGE, MI, RAMP = float(os.environ.get("USAGE", 0.5)), float(os.environ.get("MI", 0.0)), float(os.environ.get("RAMP", 0.0))
+hist = train_rl(ag, cfg, steps=steps, B=512, lr=3e-4, min_len=1, usage=USAGE, mi_cond=MI, mi_ramp=RAMP, ent_coef=0.03,
                 beta_fn=lambda f: 2.5 * min(1.0, f / 0.5), score="log", eval_every=500, seed=seed, log=log,
                 step0=step0, opt_state=opt_state, on_ckpt=on_ckpt, hist=hist)
 torch.save(state(), f"{out}/agent_s{seed}.pt")

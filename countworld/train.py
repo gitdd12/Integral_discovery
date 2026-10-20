@@ -80,7 +80,7 @@ def train_sup(agent, cfg, steps=3000, B=256, lr=3e-4, wd=0.05, seed=0, beta_fn=N
 
 
 def train_rl(agent, cfg, steps=20000, B=256, lr=3e-4, wd=0.05, lam=0.0, eps=0.0, sigma0=1.0, sigma1=0.3,
-             ent_coef=0.01, score="log", beta_fn=None, seed=0, log=print, eval_every=500, stop_acc=None, min_len=0, usage=0.0, mi_cond=0.0,
+             ent_coef=0.01, score="log", beta_fn=None, seed=0, log=print, eval_every=500, stop_acc=None, min_len=0, usage=0.0, mi_cond=0.0, mi_ramp=0.0,
              step0=0, opt_state=None, on_ckpt=None, ckpt_every=1000, hist=None):
     """강화학습: 점수 숫자 하나만 받아 정책 경사법(평균 기준값). 점수식을 미분해서 쓰지 않는다.
     score: 'log' 확신도 로그 점수 / 'zero_one' 맞음·틀림."""
@@ -109,7 +109,9 @@ def train_rl(agent, cfg, steps=20000, B=256, lr=3e-4, wd=0.05, lam=0.0, eps=0.0,
         adv_j = r_j - r_j.mean()                                           # 기준값만 빼고 크기는 보존 (표준편차로 나누면 불안정했다)
         adv_e = r_e - r_e.mean()
         logp_j = -((z - m) ** 2) / (2 * sigma ** 2)                       # 가우시안 정책의 로그확률 (상수 제외)
-        loss = -(adv_j.detach() * logp_j).mean() - (adv_e.detach() * sp["logp"]).mean() - ent_coef * sp["ent"].mean() - usage * usage_entropy(sp["probs0"], mi_cond)
+        ramp = min(1.0, step / (mi_ramp * steps)) if mi_ramp else 1.0       # 초반에는 탐색 보너스, 점차 '더미당 기호 결정' 규칙으로
+        loss = (-(adv_j.detach() * logp_j).mean() - (adv_e.detach() * sp["logp"]).mean()
+                - ent_coef * (1.0 - ramp if mi_ramp else 1.0) * sp["ent"].mean() - usage * usage_entropy(sp["probs0"], mi_cond * ramp))
         opt.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(agent.params(), 1.0)
