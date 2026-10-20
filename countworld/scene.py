@@ -42,10 +42,10 @@ def heldout_matrix(n: int, frac: float = 0.1):
 _PM_CACHE: dict = {}
 
 
-def pair_matrix(n: int, beta: float, mode: str, omit: tuple = ()):
+def pair_matrix(n: int, beta: float, mode: str, omit: tuple = (), weight=None):
     """서로 다른 (a,b) 쌍의 결합확률. mode: train(학습 쌍만) / heldout(빼 둔 쌍·뺀 개수가 낀 쌍) / all."""
     key = (n, round(beta, 2), mode, omit)
-    if key in _PM_CACHE:
+    if weight is None and key in _PM_CACHE:
         return _PM_CACHE[key]
     idx = np.arange(n)
     g = np.abs(idx[:, None] - idx[None, :]).astype(float)
@@ -55,6 +55,8 @@ def pair_matrix(n: int, beta: float, mode: str, omit: tuple = ()):
     for o in omit:
         om[o, :] = True
         om[:, o] = True
+    if weight is not None:
+        W = W * weight
     if mode == "train":
         W[ho | om] = 0.0
     elif mode == "heldout":
@@ -67,7 +69,8 @@ def pair_matrix(n: int, beta: float, mode: str, omit: tuple = ()):
             c = P.sum(0, keepdims=True)
             P = np.where(c > 0, P / np.maximum(c, 1e-12) / n, 0.0)
         P = P / P.sum()
-    _PM_CACHE[key] = P
+    if weight is None:
+        _PM_CACHE[key] = P
     return P
 
 
@@ -97,13 +100,13 @@ def _scene(rng, counts, T, q, pool, max_len):
 
 
 def make_batch(cfg: SceneCfg, rng, B: int, beta: float = 0.0, types: str = "train",
-               pairs: str = "train", a=None, b=None, answer=None):
+               pairs: str = "train", a=None, b=None, answer=None, pair_weight=None):
     """pairs: train / heldout. a,b 를 주면 그 개수로 (정답은 a==b)."""
     n = cfg.max_count + 1
     pool = TRAIN_TYPES if types == "train" else TEST_TYPES
     if a is None:
         ans = rng.random(B) < 0.5 if answer is None else np.asarray(answer, bool)
-        P = pair_matrix(n, beta, pairs, cfg.omit)
+        P = pair_matrix(n, beta, pairs, cfg.omit, pair_weight)
         flat = rng.choice(n * n, size=B, p=P.ravel())
         ad, bd = flat // n, flat % n
         valid = [c for c in range(n) if c not in cfg.omit] if pairs == "train" else list(range(n))

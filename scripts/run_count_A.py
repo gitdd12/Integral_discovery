@@ -66,7 +66,7 @@ def on_ckpt(step, opt, h):
 
 
 USAGE, MI, RAMP = float(os.environ.get("USAGE", 0.5)), float(os.environ.get("MI", 0.0)), float(os.environ.get("RAMP", 0.0))
-hist = train_rl(ag, cfg, steps=steps, B=512, lr=3e-4, min_len=1, usage=USAGE, mi_cond=MI, mi_ramp=RAMP, refresh_every=REFRESH, ent_coef=float(os.environ.get("ENT", 0.03)),
+hist = train_rl(ag, cfg, steps=steps, B=512, lr=3e-4, min_len=1, usage=USAGE, mi_cond=MI, mi_ramp=RAMP, refresh_every=REFRESH, focus=float(os.environ.get("FOCUS", 0)), ent_coef=float(os.environ.get("ENT", 0.03)),
                 beta_fn=lambda f: 2.5 * min(1.0, f / 0.5), score="log", eval_every=500, seed=seed, log=log,
                 step0=step0, opt_state=opt_state, on_ckpt=on_ckpt, hist=hist)
 torch.save(state(), f"{out}/agent_s{seed}.pt")

@@ -108,7 +108,7 @@ def train_sup(agent, cfg, steps=3000, B=256, lr=3e-4, wd=0.05, seed=0, beta_fn=N
 
 
 def train_rl(agent, cfg, steps=20000, B=256, lr=3e-4, wd=0.05, lam=0.0, eps=0.0, sigma0=1.0, sigma1=0.3,
-             ent_coef=0.01, score="log", beta_fn=None, seed=0, log=print, eval_every=500, stop_acc=None, min_len=0, usage=0.0, mi_cond=0.0, mi_ramp=0.0, refresh_every=0, refresh_stop=0.8,
+             ent_coef=0.01, score="log", beta_fn=None, seed=0, log=print, eval_every=500, stop_acc=None, min_len=0, usage=0.0, mi_cond=0.0, mi_ramp=0.0, refresh_every=0, refresh_stop=0.8, focus=0.0, focus_start=500,
              step0=0, opt_state=None, on_ckpt=None, ckpt_every=1000, hist=None):
     """강화학습: 점수 숫자 하나만 받아 정책 경사법(평균 기준값). 점수식을 미분해서 쓰지 않는다.
     score: 'log' 확신도 로그 점수 / 'zero_one' 맞음·틀림."""
@@ -121,9 +121,17 @@ def train_rl(agent, cfg, steps=20000, B=256, lr=3e-4, wd=0.05, lam=0.0, eps=0.0,
         sched.step()
     t0 = time.time()
     hist = [] if hist is None else hist
+    err_tab = np.full((cfg.max_count + 1, cfg.max_count + 1), 0.5)       # 쌍별 최근 틀린 비율
     for step in range(step0, steps):
         beta = beta_fn(step / steps) if beta_fn else 0.0
-        b = to_t(make_batch(cfg, rng, B, beta=beta), agent.dev)
+        pw = None
+        if focus and step >= focus_start:                                  # 실패 중심 출제: 최근에 많이 틀린 (개수, 개수) 쌍을 더 자주
+            n_c = cfg.max_count + 1
+            if step % 50 == 0 or "fail_w" not in dir():
+                fail_w = (err_tab + 0.05) ** focus
+                fail_w = np.maximum(fail_w, fail_w.T)
+            pw = fail_w
+        b = to_t(make_batch(cfg, rng, B, beta=beta, pair_weight=pw), agent.dev)
         if refresh_every and step > 0 and step % refresh_every == 0 and step < refresh_stop * steps:
             agent.refresh_listener(opt)
         sp = agent.speaker(b["s1"], b["l1"], mode="sample", eps=eps, min_len=min_len)
@@ -143,6 +151,12 @@ def train_rl(agent, cfg, steps=20000, B=256, lr=3e-4, wd=0.05, lam=0.0, eps=0.0,
             r_j = torch.where(same, F.logsigmoid(z), F.logsigmoid(-z))   # log(정답에 준 확률)
         else:
             r_j = ((z > 0) == same).float()
+        if focus:
+            wrong = (((z > 0) != same).float()).cpu().numpy()
+            ia, ib = np.minimum(b["a"].cpu().numpy(), b["b"].cpu().numpy()), np.maximum(b["a"].cpu().numpy(), b["b"].cpu().numpy())
+            for x, y, w in zip(ia, ib, wrong):
+                err_tab[x, y] = 0.98 * err_tab[x, y] + 0.02 * w
+                err_tab[y, x] = err_tab[x, y]
         r_e = r_j - lam * sp["lens"]
         adv_j = r_j - r_j.mean()                                           # 기준값만 빼고 크기는 보존 (표준편차로 나누면 불안정했다)
         adv_e = r_e - r_e.mean()
