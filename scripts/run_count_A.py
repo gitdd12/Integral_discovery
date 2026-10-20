@@ -19,7 +19,7 @@ torch.set_num_threads(int(os.environ.get("THREADS", "1")))
 DEV = os.environ.get("DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
 out = os.environ.get("OUT", "runs3/stageA")
 os.makedirs(out, exist_ok=True)
-logf = open(f"{out}/s{seed}.log", "a")
+logf = open(f"{out}/s{seed}.log", "a", encoding="utf-8")
 
 
 def log(s):

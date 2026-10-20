@@ -41,7 +41,7 @@ def last_line(out, s):
     p = f"{out}/s{s}.log"
     if not os.path.exists(p):
         return "(시작 전)"
-    L = [l for l in open(p, encoding="utf-8").read().splitlines() if l.strip()]
+    L = [l for l in open(p, encoding="utf-8", errors="replace").read().splitlines() if l.strip()]
     return L[-1][:110] if L else ""
 
 
@@ -87,9 +87,12 @@ if __name__ == "__main__":
             running.append((s, p))
             started[s] = p
         if tick % 6 == 0:
-            print(f"--- {int((time.time()-t0)/60)}분 경과, 실행 중 {len(running)}개, 대기 {len(jobs)}개")
-            for s, _ in running:
-                print(f"  시드{s}:", last_line(out, s))
+            try:
+                print(f"--- {int((time.time()-t0)/60)}분 경과, 실행 중 {len(running)}개, 대기 {len(jobs)}개")
+                for s, _ in running:
+                    print(f"  시드{s}:", last_line(out, s))
+            except Exception as e:                       # 표시 오류로 실행기가 죽지 않게
+                print("(진행 표시 오류, 학습은 계속됩니다)", e)
         tick += 1
         time.sleep(10)
     if failed:
