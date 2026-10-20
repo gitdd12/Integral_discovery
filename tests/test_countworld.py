@@ -18,16 +18,17 @@ def test_labels_and_counts():
         for s, l, q, c in ((b["s1"][i], b["l1"][i], b["qa"][i], b["a"][i]), (b["s2"][i], b["l2"][i], b["qb"][i], b["b"][i])):
             body = s[1:l - 3]
             assert s[0] == BOS and s[l - 3] == SEP and s[l - 2] == QRY and s[l - 1] == T0 + q
-            assert (body == T0 + q).sum() == c and len(body) == b["T"][i]
+            assert (body == T0 + q).sum() == c
+        assert len(b["s1"][i][1:b["l1"][i] - 3]) == b["T1"][i] and len(b["s2"][i][1:b["l2"][i] - 3]) == b["T2"][i]
         assert bool(b["answer"][i]) == (b["a"][i] == b["b"][i])
-    assert (b["l1"] == b["l2"]).all()          # 두 장면 전체 길이는 늘 같다
+    assert (b["l1"] != b["l2"]).any()          # 두 장면 전체 길이는 독립이라 서로 다를 수 있다
 
 
 def test_marginals_independent_of_answer():
     rng = np.random.default_rng(1)
     b = make_batch(SceneCfg(), rng, 60000, beta=1.5)
     ans = b["answer"]
-    for name in ("a", "b", "T"):
+    for name in ("a", "b", "T1", "T2"):
         x = b[name]
         h1 = np.bincount(x[ans], minlength=20) / ans.sum()
         h0 = np.bincount(x[~ans], minlength=20) / (~ans).sum()

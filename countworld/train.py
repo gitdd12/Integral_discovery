@@ -82,7 +82,7 @@ def evaluate(agent, cfg, rng, n=2048, eps=0.0, min_len=0, **kw):
     return acc, sp["lens"].mean().item()
 
 
-def train_sup(agent, cfg, steps=3000, B=256, lr=3e-4, wd=0.05, seed=0, beta_fn=None, log=print, eps=0.0, min_len=0, smode="gumbel", usage=0.0):
+def train_sup(agent, cfg, steps=3000, B=256, lr=3e-4, wd=0.05, seed=0, beta_fn=None, log=print, eps=0.0, min_len=0, smode="gumbel", usage=0.0, mi_cond=0.0):
     """지도학습 점검: 오차가 메시지를 거쳐 인코더까지 전달(gumbel straight-through). 풀 수 있는 환경인지 보려는 용도."""
     rng = np.random.default_rng(seed)
     opt = torch.optim.AdamW(agent.params(), lr=lr, weight_decay=wd)

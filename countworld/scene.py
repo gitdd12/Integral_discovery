@@ -2,7 +2,7 @@
 
 한 판 = (장면 1, 장면 2, 질의 종류 둘, 정답 같다/다르다). 환경으로 지름길을 막는다:
  - 정답을 먼저 정하고, (개수 a, 개수 b)는 a 의 주변분포와 b 의 주변분포가 정답과 무관(균일)하도록 뽑는다(Sinkhorn).
- - 두 장면의 전체 길이 T 는 늘 같고, T 는 정답·개수와 독립으로 뽑는다.
+ - 두 장면의 전체 길이 T1, T2 는 서로 독립이고 정답·개수와도 독립으로 뽑는다(2026-10-21 변경: 전에는 늘 같았다).
  - 질의 종류는 매 장면 독립으로 무작위 (종류에 고정된 의미가 없다).
  - 장면 안의 순서는 매번 섞는다.
 토큰: 0 PAD, 1 BOS, 2 SEP, 3 QRY, 4.. 물체 종류.
@@ -116,9 +116,12 @@ def make_batch(cfg: SceneCfg, rng, B: int, beta: float = 0.0, types: str = "trai
     else:
         a, b = np.asarray(a), np.asarray(b)
         ans = a == b
-    T = cfg.max_count + rng.integers(0, cfg.extra + 1, size=B)
+    # 두 장면의 전체 길이는 서로 독립으로 뽑는다(정답·개수와도 독립). 같게 맞추면 화자와 판정자가 T 를
+    # 공유 정보로 쓰는 코드(같은 개수라도 T 마다 다른 기호)가 가능해져서 정확한 코드가 필요 없어진다.
+    T1 = cfg.max_count + rng.integers(0, cfg.extra + 1, size=B)
+    T2 = cfg.max_count + rng.integers(0, cfg.extra + 1, size=B)
     qa = pool[rng.integers(0, len(pool), size=B)]
     qb = pool[rng.integers(0, len(pool), size=B)]
-    s1, l1 = _scene(rng, a, T, qa, pool, cfg.max_len)
-    s2, l2 = _scene(rng, b, T, qb, pool, cfg.max_len)
-    return dict(s1=s1, l1=l1, s2=s2, l2=l2, answer=ans, a=a, b=b, T=T, qa=qa, qb=qb)
+    s1, l1 = _scene(rng, a, T1, qa, pool, cfg.max_len)
+    s2, l2 = _scene(rng, b, T2, qb, pool, cfg.max_len)
+    return dict(s1=s1, l1=l1, s2=s2, l2=l2, answer=ans, a=a, b=b, T=T1, T1=T1, T2=T2, qa=qa, qb=qb)

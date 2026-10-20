@@ -26,17 +26,18 @@ def bag(tok):
 def features(b, kind):
     q1 = np.eye(N_TYPES)[b["qa"]]
     q2 = np.eye(N_TYPES)[b["qb"]]
-    T = b["T"][:, None].astype(float)
+    T1 = b["T1"][:, None].astype(float)
+    T2 = b["T2"][:, None].astype(float)
     # 질의 토큰도 bag 에 1 개씩 들어 있으나 모든 판에 똑같이 들어가 정보가 없다
     c1, c2 = bag(b["s1"]), bag(b["s2"])
     if kind == "scene1":
-        return np.hstack([c1, q1, T])
+        return np.hstack([c1, q1, T1])
     if kind == "scene2":
-        return np.hstack([c2, q2, T])
+        return np.hstack([c2, q2, T2])
     if kind == "nocount":
-        return np.hstack([T, (b["qa"] == b["qb"])[:, None].astype(float)])
+        return np.hstack([T1, T2, (b["qa"] == b["qb"])[:, None].astype(float)])
     if kind == "both":
-        return np.hstack([c1, c2, q1, q2, T])
+        return np.hstack([c1, c2, q1, q2, T1, T2])
     raise ValueError(kind)
 
 
