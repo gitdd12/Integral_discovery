@@ -61,7 +61,7 @@ class Speaker(nn.Module):
         self.gru = nn.GRUCell(d, d)
         self.head = nn.Linear(d, V + 1)
 
-    def forward(self, tok, length, mode="sample", tau=1.0, eps=0.0, min_len=0):
+    def forward(self, tok, length, mode="sample", tau=1.0, eps=0.0, min_len=0, temp=None):
         B = tok.shape[0]
         dev = tok.device
         h = torch.tanh(self.init(self.bb.encode(tok, length)))
@@ -97,6 +97,8 @@ class Speaker(nn.Module):
                 syms[:, t] = torch.where(alive, a, syms[:, t])
                 alive = alive & (a != V)
                 continue
+            if temp is not None:                              # 표본마다 탐색 온도(1보다 크면 더 흩어짐)
+                logits = logits / temp[:, None]
             dist = torch.distributions.Categorical(logits=logits)
             a = dist.sample() if mode == "sample" else logits.argmax(-1)
             m = alive.float()
