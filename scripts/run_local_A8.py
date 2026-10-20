@@ -69,21 +69,30 @@ if __name__ == "__main__":
         print("torch 를 불러오지 못했습니다:", e); sys.exit(1)
     jobs = [s for s in seeds if not os.path.exists(f"{out}/s{s}.json")]
     print("돌려야 할 학습:", len(jobs), "개 / 결과 폴더:", out)
-    running, t0, tick = [], time.time(), 0
+    running, t0, tick, started, failed = [], time.time(), 0, {}, []
     while jobs or running:
+        for (s, p) in running:                                                 # 비정상 종료 감지
+            if p.poll() not in (None, 0) and s not in failed:
+                failed.append(s)
+                err = open(f"{out}/s{s}.err", encoding="utf-8", errors="replace").read()[-600:]
+                print(f"!!! 시드{s} 가 오류로 멈췄습니다 (코드 {p.poll()}). 마지막 오류:\n{err}")
         running = [(s, p) for (s, p) in running if p.poll() is None]
         while jobs and len(running) < a.parallel:
             s = jobs.pop(0)
             env = dict(os.environ, OUT=out, LISTENERS="1", REFRESH="0", THREADS="1", PAIR_STEPS=str(a.pair_steps),
                        DEVICE="cuda" if torch.cuda.is_available() else "cpu", **CFG)
+            errf = open(f"{out}/s{s}.err", "w", encoding="utf-8")      # 오류 메시지가 사라지지 않게 파일로 남긴다
             p = subprocess.Popen([sys.executable, "-u", os.path.join(ROOT, "scripts", "run_count_A.py"), str(s), str(a.steps)],
-                                 env=env, cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                 env=env, cwd=ROOT, stdout=subprocess.DEVNULL, stderr=errf)
             running.append((s, p))
+            started[s] = p
         if tick % 6 == 0:
             print(f"--- {int((time.time()-t0)/60)}분 경과, 실행 중 {len(running)}개, 대기 {len(jobs)}개")
             for s, _ in running:
                 print(f"  시드{s}:", last_line(out, s))
         tick += 1
         time.sleep(10)
+    if failed:
+        print(f"!!! 오류로 멈춘 시드: {failed} (자세한 내용은 {out}/s시드.err 파일)")
     print("모두 끝났습니다\n")
     summarize(out, seeds)
