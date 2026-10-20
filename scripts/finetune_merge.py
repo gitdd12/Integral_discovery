@@ -3,7 +3,7 @@
   (1) 그 개수들 사이의 쌍을 훨씬 자주 출제하고  (2) 그 개수의 장면에서는 화자의 탐색 온도를 높인다.
 대조군(control)은 같은 단계 수를 이전 설정 그대로 이어서 학습한다.
 사용: python scripts/finetune_merge.py --src runs_local/A8 --seeds 2,3,5,7 --steps 2000 --out runs_local/A9
-환경변수: BOOST(합쳐진 쌍 가중치, 기본 20), TEMP(탐색 온도, 기본 3.0)"""
+환경변수: BOOST(합쳐진 쌍 가중치, 기본 20), EXPLORE_T(탐색 온도, 기본 3.0)"""
 import argparse
 import json
 import os
@@ -26,7 +26,7 @@ ap.add_argument("--steps", type=int, default=2000)
 ap.add_argument("--out", default="runs_local/A9")
 ap.add_argument("--variants", default="control,force")
 args = ap.parse_args()
-BOOST, TEMP = float(os.environ.get("BOOST", 20)), float(os.environ.get("TEMP", 3.0))
+BOOST, TEMP = float(os.environ.get("BOOST", 20)), float(os.environ.get("EXPLORE_T", 3.0))
 DEV = os.environ.get("DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
 torch.set_num_threads(int(os.environ.get("THREADS", "2")))
 os.makedirs(args.out, exist_ok=True)
