@@ -16,6 +16,7 @@ from countworld.train import Agent, train_pair, train_rl  # noqa: E402
 seed = int(sys.argv[1])
 steps = int(sys.argv[2]) if len(sys.argv) > 2 else 12000
 torch.set_num_threads(int(os.environ.get("THREADS", "1")))
+DEV = os.environ.get("DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
 out = os.environ.get("OUT", "runs3/stageA")
 os.makedirs(out, exist_ok=True)
 logf = open(f"{out}/s{seed}.log", "a")
@@ -31,7 +32,7 @@ torch.manual_seed(seed)
 cfg = SceneCfg(max_count=9, extra=6)
 K = int(os.environ.get("LISTENERS", 1))
 REFRESH = int(os.environ.get("REFRESH", 0))
-ag = Agent(V=10, Lmax=1, K=K)
+ag = Agent(V=10, Lmax=1, K=K, dev=DEV)
 ckpt_path = f"{out}/ckpt_s{seed}.pt"
 
 
@@ -50,12 +51,12 @@ def load(st):
 
 step0, opt_state, hist, pair_done = 0, None, [], False
 if os.path.exists(ckpt_path):                     # 컨테이너가 재시작돼도 이어서
-    ck = torch.load(ckpt_path)
+    ck = torch.load(ckpt_path, map_location=DEV)
     load(ck["agent"])
     step0, opt_state, hist, pair_done = ck["step"], ck["opt"], ck["hist"], ck["pair_done"]
     log(f"체크포인트에서 이어하기: 단계 {step0}")
 if not pair_done:
-    train_pair(ag, cfg, steps=4000, mode="rl", lr=5e-4, eval_every=250, stop_acc=0.985, beta_fn=lambda f: 0.0, seed=seed, log=log)
+    train_pair(ag, cfg, steps=int(os.environ.get("PAIR_STEPS", 4000)), mode="rl", lr=5e-4, eval_every=250, stop_acc=0.985, beta_fn=lambda f: 0.0, seed=seed, log=log)
     ag.sync_listeners()
     torch.save({"agent": state(), "step": 0, "opt": None, "hist": [], "pair_done": True}, ckpt_path)
 
