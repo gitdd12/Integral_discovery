@@ -20,7 +20,9 @@ torch.set_num_threads(int(os.environ.get("THREADS", "1")))
 out = os.environ.get("OUT", "runs4/eye")
 os.makedirs(out, exist_ok=True)
 logf = open(f"{out}/{variant}_s{seed}.log", "a", encoding="utf-8")
-TRAIN_MAX, TEST_MAX, TMIN, TMAX, D, B, CUTS = 20, 40, 20, 50, 64, 256, 4
+TRAIN_MAX, TEST_MAX = int(os.environ.get("TRAIN_MAX", 20)), int(os.environ.get("TEST_MAX", 40))
+TMIN, TMAX = int(os.environ.get("TMIN", TRAIN_MAX)), int(os.environ.get("TMAX", TEST_MAX + 10))
+D, B, CUTS = 64, 256, 4
 
 
 def log(s):
