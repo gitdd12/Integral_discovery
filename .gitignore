@@ -7,3 +7,4 @@ runs/
 runs2/cache/
 runs3/stageA/ckpt_*.pt
 runs4/**/*.log
+runs5/**/*.log
