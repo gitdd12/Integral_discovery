@@ -20,7 +20,7 @@ steps = int(sys.argv[3]) if len(sys.argv) > 3 else 20000
 LAM = float(sys.argv[4]) if len(sys.argv) > 4 else float(os.environ.get("LAM", 0.01))
 KAPPA = float(os.environ.get("KAPPA", 0.25))
 LMAX = int(os.environ.get("LMAX", 8))
-V, NMAX, D, B, LP = 2, 100, 64, 512, 24
+V, NMAX, D, B, LP = int(os.environ.get("V", 2)), 100, 64, 512, 24
 torch.set_num_threads(int(os.environ.get("THREADS", "1")))
 out = os.environ.get("OUT", "runs5/p1")
 os.makedirs(out, exist_ok=True)
